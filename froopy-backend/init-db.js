@@ -1,9 +1,9 @@
 // init-db.js - Database initialization script
 const { Pool } = require('pg');
 
-// Use the DATABASE_URL from environment or local connection
+// Use the DATABASE_URL from environment only
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://froopychat_db_user:aahNbdjR1OxHewU8zIrSvGL46iBCoUXo@dpg-d212af6mcj7s73ebj76g-a.oregon-postgres.render.com:5432/froopychat_db',
+  connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
