@@ -65,13 +65,16 @@ test.describe('Chat Flow', () => {
   test('should show chat interface correctly', async () => {
     // Set up a match first
     await completeAuthFlow(page1, 'chat1@test.com', '👨');
+    await expect(page1.locator('h2')).toContainText('I want to chat with');
     await page1.locator('button', { hasText: 'Both' }).first().click();
     
     await completeAuthFlow(page2, 'chat2@test.com', '👩');
+    await expect(page2.locator('h2')).toContainText('I want to chat with');
     await page2.locator('button', { hasText: 'Both' }).first().click();
     
-    // Wait for match
+    // Wait for match - both should go to chat
     await expect(page1.locator('button:has-text("Skip")')).toBeVisible({ timeout: 10000 });
+    await expect(page2.locator('button:has-text("Skip")')).toBeVisible({ timeout: 10000 });
     
     // Check chat interface elements
     await expect(page1.locator('span:has-text("Anonymous")')).toBeVisible();
@@ -141,10 +144,16 @@ test.describe('Chat Flow', () => {
   test('should handle skip functionality correctly', async () => {
     // Set up match
     await completeAuthFlow(page1, 'skip1@test.com', '👨');
-    await page1.locator('button:has-text("Female")').click();
+    
+    // Wait for preferences view and click Female preference
+    await expect(page1.locator('h2')).toContainText('I want to chat with');
+    await page1.locator('button:has-text("Female")').first().click();
     
     await completeAuthFlow(page2, 'skip2@test.com', '👩');
-    await page2.locator('button:has-text("Male")').click();
+    
+    // Wait for preferences view and click Male preference
+    await expect(page2.locator('h2')).toContainText('I want to chat with');
+    await page2.locator('button:has-text("Male")').first().click();
     
     await expect(page1.locator('button:has-text("Skip")')).toBeVisible({ timeout: 10000 });
     await expect(page2.locator('button:has-text("Skip")')).toBeVisible({ timeout: 10000 });

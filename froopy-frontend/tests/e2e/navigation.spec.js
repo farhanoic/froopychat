@@ -11,28 +11,33 @@ test.describe('Navigation Tests', () => {
     await expect(emailInput).toHaveAttribute('placeholder', /email/i);
   });
 
-  test('should load main page at root route', async ({ page }) => {
+  test('should redirect unauthenticated users from root to auth', async ({ page }) => {
     await page.goto('/');
-    await expect(page).toHaveURL('/');
     
-    // Should show main page (even if user not authenticated, it should load)
-    const body = page.locator('body');
-    await expect(body).toBeVisible();
+    // Should redirect to /auth for unauthenticated users (security feature)
+    await expect(page).toHaveURL('/auth');
+    
+    // Should show the authentication page
+    const emailInput = page.locator('input[type="email"]');
+    await expect(emailInput).toBeVisible();
   });
 
   test('should have only two valid routes (/auth and /)', async ({ page }) => {
-    // Test valid routes
+    // Test root route - should redirect to auth if unauthenticated
     await page.goto('/');
-    await expect(page).toHaveURL('/');
+    await expect(page).toHaveURL('/auth');
     
+    // Test auth route directly
     await page.goto('/auth');
     await expect(page).toHaveURL('/auth');
     
-    // Test invalid route - React Router should handle this (may redirect or show 404)
+    // Test invalid route - should redirect to auth due to client-side routing
     await page.goto('/invalid-route');
+    await expect(page).toHaveURL('/auth', { timeout: 2000 });
+    
     // The app should still be responsive (not crash)
     const body = page.locator('body');
-    await expect(body).toBeVisible({ timeout: 2000 });
+    await expect(body).toBeVisible();
   });
 
   test('should have mobile-optimized viewport', async ({ page }) => {

@@ -3,6 +3,8 @@ CLAUDE.md
 claude.md  
 devtrack.md
 DEVTRACK.md
+bugtrack.md
+BUGTRACK.md
 .claude/
 *.private
 *.secret

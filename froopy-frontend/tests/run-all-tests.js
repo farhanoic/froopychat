@@ -1,5 +1,6 @@
+/* eslint-env node */
+/* global process */
 import { execSync } from 'child_process';
-import { readFileSync } from 'fs';
 
 console.log('🧪 Running Froopy Chat Phase 1 Validation...\n');
 
@@ -41,7 +42,7 @@ function runESLint() {
     execSync('npx eslint src --ext .js,.jsx', { stdio: 'inherit' });
     console.log('✅ ESLint passed!\n');
     return true;
-  } catch (error) {
+  } catch {
     console.log('⚠️  ESLint found issues. You can fix them with: npx eslint src --fix\n');
     return false;
   }
@@ -54,7 +55,7 @@ function runPlaywrightTests() {
     execSync('npx playwright test --reporter=list', { stdio: 'inherit' });
     console.log('✅ All Playwright tests passed!\n');
     return true;
-  } catch (error) {
+  } catch {
     console.log('❌ Some Playwright tests failed. Check the report with: npx playwright show-report\n');
     return false;
   }

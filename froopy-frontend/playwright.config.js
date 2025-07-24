@@ -3,6 +3,8 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 30000,
+  workers: 1, // Run tests sequentially to avoid backend conflicts
+  fullyParallel: false, // Ensure sequential execution
   use: {
     baseURL: 'http://localhost:5173',
     screenshot: 'only-on-failure',

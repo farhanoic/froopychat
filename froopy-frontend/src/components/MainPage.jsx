@@ -171,7 +171,7 @@ function MainPage() {
   const { user } = useUser();
   const navigate = useNavigate();
 
-  // Auth validation - redirect to auth if no user
+  // Auth validation - redirect to auth if no user (moved before other effects)
   useEffect(() => {
     if (!user || !user.email || !user.gender) {
       console.log('No authenticated user found, redirecting to auth');
@@ -179,18 +179,6 @@ function MainPage() {
       return;
     }
   }, [user, navigate]);
-
-  // Don't render if user is not authenticated
-  if (!user || !user.email || !user.gender) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-dark-navy text-white">
-        <div className="text-center">
-          <div className="text-lg mb-2">Redirecting to authentication...</div>
-          <div className="text-sm text-white/60">Please complete your profile</div>
-        </div>
-      </div>
-    );
-  }
   
   // Listen for connection status changes
   useEffect(() => {
@@ -283,6 +271,18 @@ function MainPage() {
     console.log('Match found!');
     setState('CHATTING');
   }, []);
+  
+  // Don't render if user is not authenticated - check after all hooks
+  if (!user || !user.email || !user.gender) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-dark-navy text-white">
+        <div className="text-center">
+          <div className="text-lg mb-2">Redirecting to authentication...</div>
+          <div className="text-sm text-white/60">Please complete your profile</div>
+        </div>
+      </div>
+    );
+  }
   
   return (
     <div className="min-h-screen bg-dark-navy text-white relative">
