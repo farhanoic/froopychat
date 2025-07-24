@@ -1,7 +1,7 @@
 import { io } from 'socket.io-client';
 
-// Create socket instance
-const socket = io('http://localhost:3000');
+// Create socket instance with environment-based URL
+const socket = io(import.meta.env.VITE_WS_URL || 'http://localhost:3000');
 
 // Debug connection
 socket.on('connect', () => {
