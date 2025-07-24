@@ -1,0 +1,84 @@
+# SENSITIVE FILES - DO NOT COMMIT TO GITHUB
+CLAUDE.md
+claude.md  
+devtrack.md
+DEVTRACK.md
+.claude/
+*.private
+*.secret
+*.sensitive
+
+# Environment variables and config
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+
+# Database credentials
+database.yml
+secrets.yml
+config/database.yml
+config/secrets.yml
+
+# API Keys and tokens
+*api*key*
+*token*
+*secret*
+
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Production builds
+dist/
+build/
+
+# Logs
+logs/
+*.log
+frontend.log
+backend.log
+
+# Test results and coverage
+test-results/
+playwright-report/
+coverage/
+*.lcov
+.nyc_output
+
+# Playwright cache
+playwright/.cache/
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+*.backup
+*.bak
+*.old
+
+# Local development
+local/
+*.local
+
+# Any file with 'private' in name
+*private*
+*Private*
+*PRIVATE*
