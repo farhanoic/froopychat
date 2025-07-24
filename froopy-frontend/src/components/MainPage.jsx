@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useUser } from '../contexts/UserContext';
 import socket, { findMatch, cancelSearch, sendMessage as socketSendMessage, sendSkip } from '../services/socket';
 
@@ -168,6 +169,28 @@ function MainPage() {
   const [isConnected, setIsConnected] = useState(socket.connected);
   const [chatMessages, setChatMessages] = useState([]);
   const { user } = useUser();
+  const navigate = useNavigate();
+
+  // Auth validation - redirect to auth if no user
+  useEffect(() => {
+    if (!user || !user.email || !user.gender) {
+      console.log('No authenticated user found, redirecting to auth');
+      navigate('/auth');
+      return;
+    }
+  }, [user, navigate]);
+
+  // Don't render if user is not authenticated
+  if (!user || !user.email || !user.gender) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-dark-navy text-white">
+        <div className="text-center">
+          <div className="text-lg mb-2">Redirecting to authentication...</div>
+          <div className="text-sm text-white/60">Please complete your profile</div>
+        </div>
+      </div>
+    );
+  }
   
   // Listen for connection status changes
   useEffect(() => {
