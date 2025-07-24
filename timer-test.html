@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timer Test - Froopy Chat</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #111928;
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            text-align: center;
+            padding: 2rem;
+        }
+        .timer-display {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 2rem;
+        }
+        .dots {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+            margin-bottom: 2rem;
+        }
+        .dot {
+            width: 12px;
+            height: 12px;
+            background-color: white;
+            border-radius: 50%;
+            animation: bounce 1.4s ease-in-out infinite both;
+        }
+        .dot:nth-child(1) { animation-delay: -0.32s; }
+        .dot:nth-child(2) { animation-delay: -0.16s; }
+        .dot:nth-child(3) { animation-delay: 0s; }
+        
+        @keyframes bounce {
+            0%, 80%, 100% {
+                transform: scale(0);
+            } 40% {
+                transform: scale(1);
+            }
+        }
+        
+        button {
+            background-color: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            margin: 0 10px;
+            transition: background-color 0.2s;
+        }
+        
+        button:hover {
+            background-color: rgba(255, 255, 255, 0.2);
+        }
+        
+        .reset-btn {
+            background-color: #FF9B71;
+        }
+        
+        .reset-btn:hover {
+            background-color: #ff8a5a;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        function SearchingViewTest() {
+            const [elapsedTime, setElapsedTime] = useState(0);
+            const [isActive, setIsActive] = useState(true);
+
+            // Timer useEffect - increment every second (EXACT SAME LOGIC AS FROOPY)
+            useEffect(() => {
+                if (!isActive) return;
+                
+                const interval = setInterval(() => {
+                    setElapsedTime(prev => prev + 1);
+                }, 1000);
+                
+                // Cleanup on unmount
+                return () => clearInterval(interval);
+            }, [isActive]);
+
+            // Format timer display function (EXACT SAME AS FROOPY)
+            const formatTime = (seconds) => {
+                const mins = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                return `${mins}:${secs.toString().padStart(2, '0')}`;
+            };
+
+            const handleReset = () => {
+                setElapsedTime(0);
+            };
+
+            const handleToggle = () => {
+                setIsActive(!isActive);
+            };
+
+            return (
+                <div className="container">
+                    <h1 style={{fontSize: '3rem', marginBottom: '2rem'}}>Froopy</h1>
+                    
+                    <div className="timer-display">
+                        Searching... ({formatTime(elapsedTime)})
+                    </div>
+                    
+                    <div className="dots">
+                        <div className="dot"></div>
+                        <div className="dot"></div>
+                        <div className="dot"></div>
+                    </div>
+                    
+                    <div>
+                        <button onClick={handleToggle}>
+                            {isActive ? 'Pause Timer' : 'Resume Timer'}
+                        </button>
+                        <button className="reset-btn" onClick={handleReset}>
+                            Reset Timer
+                        </button>
+                    </div>
+                    
+                    <div style={{marginTop: '2rem', fontSize: '14px', color: 'rgba(255,255,255,0.6)'}}>
+                        <p>✅ This demonstrates the EXACT timer implementation from Froopy Chat</p>
+                        <p>⏱️ Timer starts at 0:00 and increments every second</p>
+                        <p>🔄 Reset button simulates starting a new search</p>
+                        <p>⏸️ Pause/Resume simulates component mount/unmount</p>
+                    </div>
+                </div>
+            );
+        }
+
+        // Render the component
+        ReactDOM.render(<SearchingViewTest />, document.getElementById('root'));
+    </script>
+</body>
+</html>

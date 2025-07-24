@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Typing Indicators Test</title>
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #111928; color: white; }
+        .user { border: 1px solid #333; padding: 20px; margin: 10px; border-radius: 8px; }
+        .typing { color: #FF9B71; font-style: italic; }
+        button { background: #2563EB; color: white; border: none; padding: 10px 20px; margin: 5px; border-radius: 5px; cursor: pointer; }
+        input { background: #333; color: white; border: 1px solid #555; padding: 10px; margin: 5px; border-radius: 5px; width: 300px; }
+        .status { padding: 5px; margin: 5px; border-radius: 3px; }
+        .connected { background: #22C55E; }
+        .disconnected { background: #EF4444; }
+        .typing-indicator { color: #9CA3AF; font-size: 14px; min-height: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Froopy Chat Typing Indicators Test</h1>
+    
+    <div class="user">
+        <h3>User 1</h3>
+        <div id="status1" class="status">Disconnected</div>
+        <button onclick="connectUser1()">Connect</button>
+        <button onclick="findMatch1()">Find Match</button>
+        <input id="input1" placeholder="Type message..." onkeydown="handleTyping1(event)" />
+        <button onclick="sendMessage1()">Send</button>
+        <div id="typing1" class="typing-indicator"></div>
+        <pre id="log1"></pre>
+    </div>
+    
+    <div class="user">
+        <h3>User 2</h3>
+        <div id="status2" class="status">Disconnected</div>
+        <button onclick="connectUser2()">Connect</button>
+        <button onclick="findMatch2()">Find Match</button>
+        <input id="input2" placeholder="Type message..." onkeydown="handleTyping2(event)" />
+        <button onclick="sendMessage2()">Send</button>
+        <div id="typing2" class="typing-indicator"></div>
+        <pre id="log2"></pre>
+    </div>
+
+    <script>
+        let socket1, socket2;
+        let typing1 = false, typing2 = false;
+        let timeout1, timeout2;
+
+        function log(user, message) {
+            const logEl = document.getElementById(`log${user}`);
+            logEl.textContent += new Date().toLocaleTimeString() + ': ' + message + '\n';
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function connectUser1() {
+            socket1 = io('http://localhost:3000');
+            
+            socket1.on('connect', () => {
+                document.getElementById('status1').textContent = 'Connected';
+                document.getElementById('status1').className = 'status connected';
+                log(1, 'Connected');
+            });
+            
+            socket1.on('disconnect', () => {
+                document.getElementById('status1').textContent = 'Disconnected';
+                document.getElementById('status1').className = 'status disconnected';
+                log(1, 'Disconnected');
+            });
+            
+            socket1.on('match-found', (data) => {
+                log(1, 'Match found: ' + JSON.stringify(data));
+            });
+            
+            socket1.on('partner-typing-start', () => {
+                log(1, '🔥 Partner started typing!');
+                document.getElementById('typing1').textContent = 'Someone is typing...';
+            });
+            
+            socket1.on('partner-typing-stop', () => {
+                log(1, '🔥 Partner stopped typing!');
+                document.getElementById('typing1').textContent = '';
+            });
+            
+            socket1.on('message', (msg) => {
+                log(1, 'Received: ' + msg.text);
+            });
+        }
+
+        function connectUser2() {
+            socket2 = io('http://localhost:3000');
+            
+            socket2.on('connect', () => {
+                document.getElementById('status2').textContent = 'Connected';
+                document.getElementById('status2').className = 'status connected';
+                log(2, 'Connected');
+            });
+            
+            socket2.on('disconnect', () => {
+                document.getElementById('status2').textContent = 'Disconnected';
+                document.getElementById('status2').className = 'status disconnected';
+                log(2, 'Disconnected');
+            });
+            
+            socket2.on('match-found', (data) => {
+                log(2, 'Match found: ' + JSON.stringify(data));
+            });
+            
+            socket2.on('partner-typing-start', () => {
+                log(2, '🔥 Partner started typing!');
+                document.getElementById('typing2').textContent = 'Someone is typing...';
+            });
+            
+            socket2.on('partner-typing-stop', () => {
+                log(2, '🔥 Partner stopped typing!');
+                document.getElementById('typing2').textContent = '';
+            });
+            
+            socket2.on('message', (msg) => {
+                log(2, 'Received: ' + msg.text);
+            });
+        }
+
+        function findMatch1() {
+            if (socket1) {
+                socket1.emit('find-match', { userGender: 'male', lookingFor: 'female' });
+                log(1, 'Looking for match...');
+            }
+        }
+
+        function findMatch2() {
+            if (socket2) {
+                socket2.emit('find-match', { userGender: 'female', lookingFor: 'male' });
+                log(2, 'Looking for match...');
+            }
+        }
+
+        function handleTyping1(event) {
+            if (event.key === 'Enter') {
+                sendMessage1();
+                return;
+            }
+            
+            if (!typing1) {
+                typing1 = true;
+                if (socket1) {
+                    socket1.emit('typing-start');
+                    log(1, 'Started typing');
+                }
+            }
+            
+            clearTimeout(timeout1);
+            timeout1 = setTimeout(() => {
+                typing1 = false;
+                if (socket1) {
+                    socket1.emit('typing-stop');
+                    log(1, 'Stopped typing');
+                }
+            }, 2000);
+        }
+
+        function handleTyping2(event) {
+            if (event.key === 'Enter') {
+                sendMessage2();
+                return;
+            }
+            
+            if (!typing2) {
+                typing2 = true;
+                if (socket2) {
+                    socket2.emit('typing-start');
+                    log(2, 'Started typing');
+                }
+            }
+            
+            clearTimeout(timeout2);
+            timeout2 = setTimeout(() => {
+                typing2 = false;
+                if (socket2) {
+                    socket2.emit('typing-stop');
+                    log(2, 'Stopped typing');
+                }
+            }, 2000);
+        }
+
+        function sendMessage1() {
+            const input = document.getElementById('input1');
+            if (input.value.trim() && socket1) {
+                // Stop typing when sending
+                clearTimeout(timeout1);
+                if (typing1) {
+                    typing1 = false;
+                    socket1.emit('typing-stop');
+                    log(1, 'Stopped typing (sent message)');
+                }
+                
+                const message = { text: input.value.trim(), timestamp: Date.now() };
+                socket1.emit('message', message);
+                log(1, 'Sent: ' + message.text);
+                input.value = '';
+            }
+        }
+
+        function sendMessage2() {
+            const input = document.getElementById('input2');
+            if (input.value.trim() && socket2) {
+                // Stop typing when sending
+                clearTimeout(timeout2);
+                if (typing2) {
+                    typing2 = false;
+                    socket2.emit('typing-stop');
+                    log(2, 'Stopped typing (sent message)');
+                }
+                
+                const message = { text: input.value.trim(), timestamp: Date.now() };
+                socket2.emit('message', message);
+                log(2, 'Sent: ' + message.text);
+                input.value = '';
+            }
+        }
+
+        // Auto-connect on page load
+        window.onload = () => {
+            connectUser1();
+            connectUser2();
+        };
+    </script>
+</body>
+</html>

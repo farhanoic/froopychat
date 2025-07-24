@@ -62,6 +62,9 @@ test.describe('Authentication Flow', () => {
     // Enter valid email
     await page.fill('input[type="email"]', 'test@example.com');
     
+    // Enter valid password
+    await page.fill('input[type="password"]', 'password123');
+    
     // Select gender (male)
     await page.locator('button:has-text("👨")').click();
     
@@ -84,6 +87,9 @@ test.describe('Authentication Flow', () => {
     // Enter valid email
     await page.fill('input[type="email"]', 'female@example.com');
     
+    // Enter valid password
+    await page.fill('input[type="password"]', 'password123');
+    
     // Select gender (female)
     await page.locator('button:has-text("👩")').click();
     
@@ -101,6 +107,9 @@ test.describe('Authentication Flow', () => {
   test('should handle email with minimal validation', async ({ page }) => {
     // Test borderline valid email
     await page.fill('input[type="email"]', 'a@b');
+    
+    // Enter valid password
+    await page.fill('input[type="password"]', 'password123');
     
     // Should allow gender selection
     await page.locator('button:has-text("👨")').click();
@@ -141,6 +150,9 @@ test.describe('Authentication Flow', () => {
     // Enter email
     await page.fill('input[type="email"]', testEmail);
     
+    // Enter valid password
+    await page.fill('input[type="password"]', 'password123');
+    
     // Select gender
     await page.locator('button:has-text("👨")').click();
     
@@ -151,5 +163,23 @@ test.describe('Authentication Flow', () => {
     
     await continueButton.click();
     await expect(page).toHaveURL('/');
+  });
+
+  test('should validate password length', async ({ page }) => {
+    // Enter valid email
+    await page.fill('input[type="email"]', 'test@example.com');
+    
+    // Enter password too short
+    await page.fill('input[type="password"]', 'short');
+    
+    // Try to select gender - should get alert about password
+    await page.locator('button:has-text("👨")').click();
+    
+    // Should still show email and password inputs
+    await expect(page.locator('input[type="email"]')).toBeVisible();
+    await expect(page.locator('input[type="password"]')).toBeVisible();
+    
+    // Gender buttons should still be visible (not changed to continue button)
+    await expect(page.locator('button:has-text("👨")')).toBeVisible();
   });
 });

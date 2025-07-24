@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Swipe Test - Froopy Chat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --dark-navy: #111928;
+            --royal-blue: #2563EB;
+            --white: #FEFFFE;
+            --tangerine: #FF9B71;
+        }
+        
+        @keyframes fade-in {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .animate-fade-in {
+            animation: fade-in 0.3s ease-out;
+        }
+        
+        .bg-dark-navy { background-color: var(--dark-navy); }
+        .bg-royal-blue { background-color: var(--royal-blue); }
+        .bg-tangerine { background-color: var(--tangerine); }
+        .text-white { color: var(--white); }
+    </style>
+</head>
+<body>
+    <div id="app" class="bg-dark-navy text-white"></div>
+
+    <script>
+        // Simulate React-like state management
+        let state = {
+            touchStart: 0,
+            touchEnd: 0,
+            isSwiping: false,
+            swipeDistance: 0,
+            showSwipeHint: true,
+            touchStartY: 0,
+            isTyping: false,
+            messages: [
+                { text: "Hello! This is a test message.", isMine: false, timestamp: Date.now() - 10000 },
+                { text: "Hi there! Testing the swipe functionality.", isMine: true, timestamp: Date.now() - 5000 },
+            ]
+        };
+
+        let testResults = [];
+
+        function addTestResult(test, result, details) {
+            testResults.push({ test, result, details, timestamp: new Date().toLocaleTimeString() });
+            updateTestResults();
+        }
+
+        function updateTestResults() {
+            const resultsDiv = document.getElementById('test-results');
+            if (resultsDiv) {
+                resultsDiv.innerHTML = testResults.map(r => 
+                    `<div class="p-2 mb-2 rounded ${r.result === 'PASS' ? 'bg-green-600' : 'bg-red-600'}">
+                        <strong>${r.test}</strong>: ${r.result}<br>
+                        <small>${r.details} (${r.timestamp})</small>
+                    </div>`
+                ).join('');
+            }
+        }
+
+        // Touch handler functions (copied from implementation)
+        function handleTouchStart(e) {
+            state.touchStart = e.targetTouches[0].clientX;
+            state.touchStartY = e.targetTouches[0].clientY;
+            state.touchEnd = e.targetTouches[0].clientX;
+            state.isSwiping = false;
+            state.swipeDistance = 0;
+            
+            addTestResult('Touch Start', 'PASS', `Started at X:${state.touchStart}, Y:${state.touchStartY}`);
+            render();
+        }
+
+        function handleTouchMove(e) {
+            const horizontalDistance = e.targetTouches[0].clientX - state.touchStart;
+            const verticalDistance = Math.abs(e.targetTouches[0].clientY - state.touchStartY);
+            
+            // Only swipe if horizontal movement is greater than vertical and it's a right swipe
+            if (Math.abs(horizontalDistance) > verticalDistance && horizontalDistance > 10) {
+                // Prevent message input focus during swipe
+                const messageInput = document.querySelector('input[type="text"]');
+                if (messageInput === document.activeElement) {
+                    addTestResult('Typing Protection', 'PASS', 'Prevented swipe while typing');
+                    return; // Don't swipe while typing
+                }
+                
+                state.touchEnd = e.targetTouches[0].clientX;
+                state.isSwiping = true;
+                state.swipeDistance = Math.min(horizontalDistance, 150); // Cap at 150px
+                
+                // Prevent vertical scroll during horizontal swipe
+                e.preventDefault();
+                
+                // Hide hint after first swipe attempt
+                if (state.showSwipeHint) {
+                    state.showSwipeHint = false;
+                    addTestResult('Hint Hide', 'PASS', 'Hint hidden after first swipe');
+                }
+                
+                addTestResult('Touch Move', 'PASS', `Swipe distance: ${state.swipeDistance}px`);
+                render();
+            }
+        }
+
+        function handleTouchEnd() {
+            if (!state.isSwiping) return;
+            
+            const swipeThreshold = 100; // 100px to trigger skip
+            
+            if (state.swipeDistance > swipeThreshold) {
+                // Reset swipe states immediately
+                state.swipeDistance = 0;
+                state.isSwiping = false;
+                
+                addTestResult('Swipe Skip', 'PASS', `Triggered skip at ${state.swipeDistance}px (threshold: ${swipeThreshold}px)`);
+                handleSkip();
+            } else {
+                // Snap back
+                state.swipeDistance = 0;
+                addTestResult('Swipe Snap Back', 'PASS', `Snapped back, didn't reach threshold`);
+            }
+            
+            // Reset states
+            state.isSwiping = false;
+            state.touchStart = 0;
+            state.touchEnd = 0;
+            render();
+        }
+
+        function handleSkip() {
+            addTestResult('Skip Function', 'PASS', 'Skip function called successfully');
+            alert('Skip triggered! In real app, this would return to preferences.');
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <div class="min-h-screen bg-dark-navy relative">
+                    <!-- Test Results Panel -->
+                    <div class="fixed top-0 left-0 right-0 bg-black/80 p-4 z-50 max-h-40 overflow-y-auto">
+                        <h3 class="text-sm font-bold mb-2">Test Results:</h3>
+                        <div id="test-results" class="text-xs"></div>
+                    </div>
+
+                    <!-- Chat Container (Swipeable) -->
+                    <div 
+                        class="relative flex flex-col h-screen bg-dark-navy mt-40"
+                        style="
+                            transform: translateX(${state.swipeDistance}px);
+                            transition: ${state.isSwiping ? 'none' : 'transform 0.3s ease-out'};
+                            opacity: ${1 - (state.swipeDistance / 300)};
+                        "
+                        ontouchstart="handleTouchStart(event)"
+                        ontouchmove="handleTouchMove(event)"
+                        ontouchend="handleTouchEnd(event)"
+                    >
+                        <!-- Skip indicator that appears during swipe -->
+                        ${state.isSwiping && state.swipeDistance > 50 ? `
+                            <div class="absolute left-4 top-1/2 transform -translate-y-1/2 
+                                        bg-tangerine text-white px-4 py-2 rounded-full
+                                        transition-opacity duration-200 z-10"
+                                 style="opacity: ${state.swipeDistance > 100 ? 1 : 0.5}">
+                                <span class="font-medium">Skip →</span>
+                            </div>
+                        ` : ''}
+                        
+                        <!-- Chat header with skip button -->
+                        <div class="flex justify-between items-center p-4 border-b border-white/10">
+                            <span>Anonymous</span>
+                            <button 
+                                onclick="handleSkip()"
+                                class="bg-tangerine px-6 py-2 rounded-full text-white hover:opacity-90 transition-opacity"
+                            >
+                                Skip
+                            </button>
+                        </div>
+
+                        <!-- Swipe hint for new users -->
+                        ${state.showSwipeHint ? `
+                            <div class="mx-4 mb-2 p-3 bg-white/5 rounded-lg text-center animate-fade-in">
+                                <p class="text-white/70 text-sm">
+                                    💡 Tip: Swipe right to skip to next person
+                                </p>
+                            </div>
+                        ` : ''}
+
+                        <!-- Messages -->
+                        <div class="flex-1 overflow-y-auto p-4" ontouchstart="event.stopPropagation()">
+                            ${state.messages.map((msg, i) => `
+                                <div class="mb-4 ${msg.isMine ? 'text-right' : 'text-left'}">
+                                    <div class="inline-block max-w-xs">
+                                        <span class="block p-3 rounded-2xl break-words ${
+                                            msg.isMine ? 'bg-royal-blue text-white' : 'bg-white/10 text-white'
+                                        }">
+                                            ${msg.text}
+                                        </span>
+                                        <span class="text-xs text-white/40 mt-1 px-1">
+                                            ${new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+
+                        <!-- Input -->
+                        <div class="p-4 border-t border-white/10">
+                            <input 
+                                type="text"
+                                placeholder="Type a message... (try typing to test typing protection)"
+                                class="w-full p-4 rounded-full bg-white/10 text-white placeholder-white/50 focus:outline-none focus:bg-white/20 transition-colors text-base"
+                                style="font-size: 16px"
+                                onfocus="state.isTyping = true; addTestResult('Input Focus', 'PASS', 'Input focused, typing protection active');"
+                                onblur="state.isTyping = false; addTestResult('Input Blur', 'PASS', 'Input blurred, swipe now available');"
+                            />
+                        </div>
+                    </div>
+                </div>
+            `;
+            updateTestResults();
+        }
+
+        // Auto-run tests on load
+        window.onload = function() {
+            addTestResult('Page Load', 'PASS', 'Test page loaded successfully');
+            render();
+            
+            // Auto-hide hint after 8 seconds (like real implementation)
+            setTimeout(() => {
+                if (state.showSwipeHint) {
+                    state.showSwipeHint = false;
+                    addTestResult('Auto Hide Hint', 'PASS', 'Hint auto-hidden after 8 seconds');
+                    render();
+                }
+            }, 8000);
+        };
+    </script>
+</body>
+</html>

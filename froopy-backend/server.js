@@ -4,14 +4,14 @@ const app = express();
 const server = require('http').createServer(app);
 const io = require('socket.io')(server, {
   cors: {
-    origin: ['http://localhost:5173', 'http://localhost:5174', 'https://froopychat.vercel.app'],
+    origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176', 'https://froopychat.vercel.app'],
     credentials: true
   }
 });
 const cors = require('cors');
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'https://froopychat.vercel.app'],
+  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176', 'https://froopychat.vercel.app'],
   credentials: true
 }));
 
@@ -90,19 +90,42 @@ io.on('connection', (socket) => {
 
   // Add message handler
   socket.on('message', (message) => {
-    console.log(`Message from ${socket.id}:`, message);
+    console.log(`Message from ${socket.id}:`, message); // Keep - important for moderation
     
     // Find partner
     const partnerId = activeMatches.get(socket.id);
     
     if (partnerId) {
-      console.log(`Relaying message to ${partnerId}`);
+      // console.log(`Relaying message to ${partnerId}`); // Dev log - cleaned up
       io.to(partnerId).emit('message', {
         ...message,
         senderId: socket.id
       });
     } else {
-      console.log(`No partner found for ${socket.id}`);
+      console.log(`No partner found for ${socket.id}`); // Keep - indicates system issue
+    }
+  });
+
+  // Add typing event handlers
+  socket.on('typing-start', () => {
+    console.log(`User ${socket.id} started typing`); // Keep - shows user activity
+    const partnerId = activeMatches.get(socket.id);
+    if (partnerId) {
+      // console.log(`Notifying partner ${partnerId} about typing`); // Dev log - cleaned up
+      io.to(partnerId).emit('partner-typing-start');
+    } else {
+      // console.log('No active partner to notify about typing'); // Dev log - cleaned up
+    }
+  });
+
+  socket.on('typing-stop', () => {
+    console.log(`User ${socket.id} stopped typing`); // Keep - shows user activity
+    const partnerId = activeMatches.get(socket.id);
+    if (partnerId) {
+      // console.log(`Notifying partner ${partnerId} stopped typing`); // Dev log - cleaned up
+      io.to(partnerId).emit('partner-typing-stop');
+    } else {
+      // console.log('No active partner to notify about typing stop'); // Dev log - cleaned up
     }
   });
 

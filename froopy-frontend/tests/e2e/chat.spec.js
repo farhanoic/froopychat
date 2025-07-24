@@ -7,6 +7,7 @@ test.describe('Chat Flow', () => {
   async function completeAuthFlow(page, email, gender) {
     await page.goto('/auth');
     await page.fill('input[type="email"]', email);
+    await page.fill('input[type="password"]', 'password123');
     await page.locator(`button:has-text("${gender}")`).click();
     await page.locator('button:has-text("Continue")').click();
     await expect(page).toHaveURL('/');
