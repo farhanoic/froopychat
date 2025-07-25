@@ -45,6 +45,11 @@ logs/
 frontend.log
 backend.log
 
+# Process IDs
+*.pid
+frontend.pid
+backend.pid
+
 # Test results and coverage
 test-results/
 playwright-report/

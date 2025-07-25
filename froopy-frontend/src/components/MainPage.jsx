@@ -4,35 +4,82 @@ import { useUser } from '../contexts/UserContext';
 import socket, { findMatch, cancelSearch, sendMessage as socketSendMessage, sendSkip, onReconnecting, onReconnected, onReconnectError, startTyping, stopTyping, onPartnerTypingStart, onPartnerTypingStop } from '../services/socket';
 
 // View components
-function PreferencesView({ onPreferenceSelect }) {
+function PreferencesView({ onPreferenceSelect, interests, setInterests, selectedDuration, setSelectedDuration, durations, getDurationButtonClass }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-full p-4">
-      <h2 className="text-2xl mb-8">I want to chat with</h2>
-      <div className="flex flex-col gap-4 w-full max-w-xs">
-        <button 
-          onClick={() => onPreferenceSelect('male')}
-          className="bg-white/10 p-4 rounded-full hover:bg-white/20 transition-colors"
-        >
-          Male
-        </button>
-        <button 
-          onClick={() => onPreferenceSelect('female')}
-          className="bg-white/10 p-4 rounded-full hover:bg-white/20 transition-colors"
-        >
-          Female
-        </button>
-        <button 
-          onClick={() => onPreferenceSelect('both')}
-          className="bg-royal-blue p-4 rounded-full hover:bg-blue-600 transition-colors"
-        >
-          Both
-        </button>
+      <div className="w-full max-w-xs space-y-6">
+        {/* Header */}
+        <div className="text-center">
+          <h2 className="text-2xl text-white">I want to chat with</h2>
+        </div>
+        
+        {/* Gender preference buttons */}
+        <div className="space-y-4">
+          <button 
+            onClick={() => onPreferenceSelect('male')}
+            className="w-full min-h-[48px] bg-white/10 rounded-full hover:bg-white/20 
+                       transition-colors text-white font-medium"
+          >
+            Male
+          </button>
+          <button 
+            onClick={() => onPreferenceSelect('female')}
+            className="w-full min-h-[48px] bg-white/10 rounded-full hover:bg-white/20 
+                       transition-colors text-white font-medium"
+          >
+            Female
+          </button>
+          <button 
+            onClick={() => onPreferenceSelect('both')}
+            className="w-full min-h-[48px] bg-blue-600 rounded-full hover:bg-blue-700 
+                       transition-colors text-white font-medium"
+          >
+            Both
+          </button>
+        </div>
+        
+        {/* Interest input field */}
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={interests}
+            onChange={(e) => setInterests(e.target.value)}
+            placeholder="Interests (optional): gaming, music..."
+            className="w-full min-h-[48px] px-4 py-3 bg-gray-800 text-white rounded-full 
+                       placeholder-gray-500 focus:outline-none focus:ring-2 
+                       focus:ring-blue-500 transition-colors"
+            style={{ fontSize: '16px' }}
+            maxLength={100}
+          />
+        </div>
+
+        {/* Duration selector */}
+        <div className="space-y-3">
+          <p className="text-gray-400 text-sm text-center">Search duration:</p>
+          <div className="flex gap-2 justify-center">
+            {durations.map(duration => (
+              <button
+                key={duration}
+                onClick={() => setSelectedDuration(duration)}
+                className={`${getDurationButtonClass(duration)} min-h-[44px] min-w-[60px]`}
+                type="button"
+              >
+                {duration}
+              </button>
+            ))}
+          </div>
+          <p className="text-gray-500 text-xs text-center leading-relaxed">
+            {selectedDuration === '∞' 
+              ? 'Search indefinitely for interest matches' 
+              : `Search ${selectedDuration} for interests, then expand to all`}
+          </p>
+        </div>
       </div>
     </div>
   );
 }
 
-function SearchingView({ onCancel }) {
+function SearchingView({ onCancel, interests, selectedDuration, searchPhase }) {
   const [elapsedTime, setElapsedTime] = useState(0);
   
   // Timer useEffect - increment every second
@@ -57,15 +104,49 @@ function SearchingView({ onCancel }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-full p-4">
       <div className="text-center">
-        <h2 className="text-2xl font-semibold text-white mb-8">
-          Searching... ({formatTime(elapsedTime)})
-        </h2>
+        {/* Animated spinner */}
+        <div className="mb-6">
+          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent 
+                        rounded-full animate-spin mx-auto"></div>
+        </div>
         
-        {/* Simple loading animation */}
-        <div className="flex gap-2 justify-center mb-8">
-          <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{animationDelay: '0ms'}}></div>
-          <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{animationDelay: '150ms'}}></div>
-          <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{animationDelay: '300ms'}}></div>
+        {/* Timer display */}
+        <p className="text-gray-400 mb-6">Searching for {formatTime(elapsedTime)}</p>
+        
+        {/* Phase indicator */}
+        <div className="mb-6 transition-all duration-500">
+          {interests && interests.trim() ? (
+            // User has interests
+            searchPhase === 'interests' ? (
+              <div className="space-y-2 transform transition-all duration-500 scale-100">
+                <p className="text-white text-lg flex items-center justify-center gap-2">
+                  <span>Looking for shared interests</span>
+                  <span className="text-2xl animate-pulse">🎯</span>
+                </p>
+                <p className="text-gray-500 text-sm">
+                  {selectedDuration === '∞' ? 'Searching indefinitely' : `Phase 1 of 2 • ${selectedDuration} remaining`}
+                </p>
+                <p className="text-gray-600 text-xs">
+                  Interests: {interests}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2 transform transition-all duration-500 scale-100">
+                <p className="text-white text-lg flex items-center justify-center gap-2">
+                  <span>Expanding search</span>
+                  <span className="text-2xl animate-pulse">🌍</span>
+                </p>
+                <p className="text-gray-500 text-sm">
+                  Phase 2 of 2 • Looking for anyone compatible
+                </p>
+              </div>
+            )
+          ) : (
+            // User has no interests
+            <p className="text-white text-lg">
+              Finding someone for you...
+            </p>
+          )}
         </div>
         
         <button 
@@ -378,6 +459,9 @@ function MainPage() {
   const [state, setState] = useState('PREFERENCES');
   const [_preferences, setPreferences] = useState(null);
   const [_partner, setPartner] = useState(null);
+  const [interests, setInterests] = useState('');
+  const [selectedDuration, setSelectedDuration] = useState('30s'); // Default 30s
+  const [searchPhase, setSearchPhase] = useState('interests'); // 'interests' or 'gender-only'
   const [isConnected, setIsConnected] = useState(socket.connected);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectionAttempts, setReconnectionAttempts] = useState(0);
@@ -390,6 +474,19 @@ function MainPage() {
   const navigate = useNavigate();
   
   const MAX_RECONNECTION_ATTEMPTS = 5;
+
+  // Duration options
+  const durations = ['15s', '30s', '1min', '∞'];
+
+  // Helper to style selected duration
+  const getDurationButtonClass = (duration) => {
+    const baseClass = "px-4 py-2 rounded-full text-sm font-medium transition-all ";
+    const isSelected = selectedDuration === duration;
+    
+    return baseClass + (isSelected 
+      ? "bg-blue-600 text-white" 
+      : "bg-gray-800 text-gray-400 hover:bg-gray-700");
+  };
 
   // Auth validation
   useEffect(() => {
@@ -476,13 +573,23 @@ function MainPage() {
     const handleMatchFound = (data) => {
       console.log('Match found!', data);
       setPartner(data.partnerId);
+      setInterests(''); // Clear interests after match
+      setSelectedDuration('30s'); // Reset to default
+      setSearchPhase('interests'); // Reset phase for next search
       setState('CHATTING');
     };
     
+    const handlePhaseChanged = (data) => {
+      console.log('🔄 Search phase changed:', data.phase);
+      setSearchPhase(data.phase === 'gender-only' ? 'gender-only' : 'interests');
+    };
+    
     socket.on('match-found', handleMatchFound);
+    socket.on('search-phase-changed', handlePhaseChanged);
     
     return () => {
       socket.off('match-found', handleMatchFound);
+      socket.off('search-phase-changed', handlePhaseChanged);
     };
   }, []);
 
@@ -500,6 +607,7 @@ function MainPage() {
       setPreferences(null);
       setPartner(null);
       setChatMessages([]);
+      setSearchPhase('interests'); // Reset phase
     };
     
     const handlePartnerDisconnected = () => {
@@ -509,6 +617,7 @@ function MainPage() {
       setPreferences(null);
       setPartner(null);
       setChatMessages([]);
+      setSearchPhase('interests'); // Reset phase
     };
     
     socket.on('message', handleMessage);
@@ -540,10 +649,19 @@ function MainPage() {
     setPreferences(preference);
     setState('SEARCHING');
     
+    // Reset phase based on whether interests are provided
+    if (interests && interests.trim()) {
+      setSearchPhase('interests');
+    } else {
+      setSearchPhase('gender-only');
+    }
+    
     // Start real matching - use test data when user not available
     findMatch({
       userGender: user?.gender || 'male',
-      lookingFor: preference
+      lookingFor: preference,
+      interests: interests.trim(), // Include interests in match request
+      searchDuration: selectedDuration // ADD this line
     });
   };
   
@@ -581,14 +699,28 @@ function MainPage() {
         </div>
       )}
       
-      {state === 'PREFERENCES' && <PreferencesView onPreferenceSelect={handlePreferenceSelect} />}
+      {state === 'PREFERENCES' && (
+        <PreferencesView 
+          onPreferenceSelect={handlePreferenceSelect}
+          interests={interests}
+          setInterests={setInterests}
+          selectedDuration={selectedDuration}
+          setSelectedDuration={setSelectedDuration}
+          durations={durations}
+          getDurationButtonClass={getDurationButtonClass}
+        />
+      )}
       {state === 'SEARCHING' && (
         <SearchingView 
           onCancel={() => {
             cancelSearch(); // Notify backend
             setState('PREFERENCES');
             setPreferences(null);
+            setSearchPhase('interests'); // Reset phase
           }}
+          interests={interests}
+          selectedDuration={selectedDuration}
+          searchPhase={searchPhase}
         />
       )}
       {state === 'CHATTING' && (
@@ -601,6 +733,7 @@ function MainPage() {
             setPreferences(null);
             setPartner(null);
             setChatMessages([]);
+            setSearchPhase('interests'); // Reset phase
           }}
           onSendMessage={(message) => {
             try {

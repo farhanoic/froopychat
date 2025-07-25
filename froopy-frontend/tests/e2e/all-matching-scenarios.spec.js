@@ -268,7 +268,6 @@ test.describe('Complete Real-Time E2E Testing: All Matching Scenarios', () => {
       await expect(user2.locator('text=You\'re now chatting!')).toBeVisible({ timeout: 15000 });
       
       const input1 = user1.locator('input[placeholder="Type a message..."]');
-      const input2 = user2.locator('input[placeholder="Type a message..."]');
       
       await input1.fill('Pre-disconnect message');
       await input1.press('Enter');
