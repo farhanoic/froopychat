@@ -1,5 +1,14 @@
 import { io } from 'socket.io-client';
 
+// Offline message queue system
+let messageQueue = [];
+let isOnline = navigator.onLine;
+let queueFlushInProgress = false;
+
+// Export queue for debugging
+export const getMessageQueue = () => [...messageQueue];
+export const getOnlineStatus = () => isOnline;
+
 // Create socket instance with environment-based URL and reconnection options
 const socket = io(import.meta.env.VITE_WS_URL || 'http://localhost:3000', {
   reconnection: true,
@@ -9,13 +18,36 @@ const socket = io(import.meta.env.VITE_WS_URL || 'http://localhost:3000', {
   timeout: 20000
 });
 
+// Online/offline detection
+window.addEventListener('online', () => {
+  console.log('[Socket] Network online detected');
+  isOnline = true;
+  
+  // Only flush queue if we have a socket connection
+  if (socket.connected && messageQueue.length > 0) {
+    flushMessageQueue();
+  }
+});
+
+window.addEventListener('offline', () => {
+  console.log('[Socket] Network offline detected');
+  isOnline = false;
+});
+
 // Debug connection
 socket.on('connect', () => {
   console.log('Socket connected:', socket.id);
+  isOnline = true;
+  
+  // Flush any pending messages
+  if (messageQueue.length > 0) {
+    flushMessageQueue();
+  }
 });
 
 socket.on('disconnect', () => {
   console.log('Socket disconnected');
+  // Don't set isOnline = false here, as we might still have network
 });
 
 // Match-related functions
@@ -71,6 +103,51 @@ export const onPartnerTypingStart = (callback) => {
 export const onPartnerTypingStop = (callback) => {
   socket.on('partner-typing-stop', callback);
 };
+
+// Add message to queue
+export const queueMessage = (messageData) => {
+  messageQueue.push({
+    ...messageData,
+    queuedAt: Date.now(),
+    id: `queued-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  });
+  console.log('[Socket] Message queued:', messageData);
+  return messageQueue[messageQueue.length - 1];
+};
+
+// Flush all queued messages
+const flushMessageQueue = async () => {
+  if (queueFlushInProgress || messageQueue.length === 0) {
+    return;
+  }
+  
+  console.log(`[Socket] Flushing ${messageQueue.length} queued messages`);
+  queueFlushInProgress = true;
+  
+  // Copy queue and clear it
+  const messagesToSend = [...messageQueue];
+  messageQueue = [];
+  
+  // Send each message with a small delay to avoid overwhelming
+  for (const msg of messagesToSend) {
+    if (socket.connected) {
+      socket.emit('message', { text: msg.text });
+      console.log('[Socket] Sent queued message:', msg.text);
+      
+      // Small delay between messages
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } else {
+      // If disconnected again, re-queue the remaining messages
+      messageQueue.unshift(...messagesToSend.slice(messagesToSend.indexOf(msg)));
+      break;
+    }
+  }
+  
+  queueFlushInProgress = false;
+};
+
+// Check if we should queue or send directly
+export const canSendDirectly = () => isOnline && socket.connected;
 
 // Export socket for event listeners
 export default socket;

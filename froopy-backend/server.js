@@ -147,6 +147,33 @@ app.get('/test-interest-matching', (req, res) => {
   });
 });
 
+// Debug endpoint to view blocked users
+app.get('/debug-blocked-users', (req, res) => {
+  const blockData = {};
+  blockedUsers.forEach((blockedSet, userId) => {
+    blockData[userId.substring(0, 8) + '...'] = Array.from(blockedSet).map(id => id.substring(0, 8) + '...');
+  });
+  
+  res.json({
+    totalUsers: blockedUsers.size,
+    blocks: blockData,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Debug endpoint to view reports
+app.get('/debug-reports', (req, res) => {
+  res.json({
+    totalReports: userReports.length,
+    reports: userReports.slice(-50), // Last 50 reports
+    reportsByReason: userReports.reduce((acc, report) => {
+      acc[report.reason] = (acc[report.reason] || 0) + 1;
+      return acc;
+    }, {}),
+    timestamp: new Date().toISOString()
+  });
+});
+
 // ADD this for manual testing
 app.post('/test-interest-comparison', (req, res) => {
   const { interests1, interests2 } = req.body;
@@ -319,6 +346,39 @@ const activeMatches = new Map();
 // Track timeouts for phase transitions
 const phaseTimeouts = new Map();
 
+// Blocked users tracking - Map of userId -> Set of blocked userIds
+// Blocking is mutual: if A blocks B, both A->B and B->A are blocked
+const blockedUsers = new Map();
+
+// Report tracking for moderation - in production, this would go to database
+const userReports = [];
+
+// Helper to check if two users have blocked each other
+function areUsersBlocked(userId1, userId2) {
+  const user1Blocks = blockedUsers.get(userId1);
+  const user2Blocks = blockedUsers.get(userId2);
+  
+  return (user1Blocks && user1Blocks.has(userId2)) || 
+         (user2Blocks && user2Blocks.has(userId1));
+}
+
+// Helper to add a mutual block
+function addMutualBlock(userId1, userId2) {
+  // Initialize Sets if needed
+  if (!blockedUsers.has(userId1)) {
+    blockedUsers.set(userId1, new Set());
+  }
+  if (!blockedUsers.has(userId2)) {
+    blockedUsers.set(userId2, new Set());
+  }
+  
+  // Add mutual blocks
+  blockedUsers.get(userId1).add(userId2);
+  blockedUsers.get(userId2).add(userId1);
+  
+  console.log(`🚫 Mutual block added: ${userId1} <-> ${userId2}`);
+}
+
 // Parse duration string to milliseconds
 function parseDuration(duration) {
   const durationMap = {
@@ -408,6 +468,12 @@ function attemptMatch(searchingUserId) {
   // Try to find a match
   for (const [waitingUserId, waitingUser] of waitingUsers) {
     if (waitingUserId !== searchingUserId) {
+      // Check if users have blocked each other
+      if (areUsersBlocked(searchingUserId, waitingUserId)) {
+        console.log(`🚫 Skipping blocked user: ${searchingUserId.substring(0, 8)} <-> ${waitingUserId.substring(0, 8)}`);
+        continue;
+      }
+      
       const genderMatch = checkMatch(searchingUser, waitingUser);
       
       // Phase logic
@@ -651,6 +717,84 @@ io.on('connection', (socket) => {
       activeMatches.delete(socket.id);
       activeMatches.delete(partnerId);
     }
+  });
+
+  // Handle user blocking
+  socket.on('block-user', ({ blockedUserId }) => {
+    console.log(`⚠️ Block request: ${socket.id.substring(0, 8)} wants to block ${blockedUserId.substring(0, 8)}`);
+    
+    // Verify both users exist and are in an active match
+    const userMatch = activeMatches.get(socket.id);
+    if (!userMatch || userMatch !== blockedUserId) {
+      console.error('❌ Block failed: Users not in active match');
+      return;
+    }
+    
+    // Add mutual block
+    addMutualBlock(socket.id, blockedUserId);
+    
+    // Disconnect both users from current chat
+    io.to(socket.id).emit('partner-disconnected');
+    io.to(blockedUserId).emit('partner-disconnected');
+    
+    // Clean up the match
+    activeMatches.delete(socket.id);
+    activeMatches.delete(blockedUserId);
+    
+    // Notify both users
+    io.to(socket.id).emit('user-blocked', { 
+      message: 'User blocked. Finding new match...',
+      blockedUser: blockedUserId 
+    });
+    
+    io.to(blockedUserId).emit('blocked-by-user', {
+      message: 'You have been blocked. Finding new match...'
+    });
+    
+    console.log(`✅ Block completed: ${socket.id.substring(0, 8)} <-> ${blockedUserId.substring(0, 8)}`);
+  });
+
+  // Handle user reporting
+  socket.on('report-user', (reportData) => {
+    console.log(`⚠️ User report received:`, reportData);
+    
+    // Validate report data
+    if (!reportData.reportedUserId || !reportData.reason) {
+      console.error('❌ Invalid report data');
+      return;
+    }
+    
+    // Verify reporter is in active match with reported user
+    const userMatch = activeMatches.get(socket.id);
+    if (!userMatch || userMatch !== reportData.reportedUserId) {
+      console.error('❌ Report failed: Users not in active match');
+      return;
+    }
+    
+    // Log the report
+    const report = {
+      id: `report-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      reporterId: socket.id,
+      reportedUserId: reportData.reportedUserId,
+      reportedUsername: reportData.reportedUsername,
+      reason: reportData.reason,
+      timestamp: reportData.timestamp || new Date().toISOString(),
+      matchId: userMatch
+    };
+    
+    userReports.push(report);
+    
+    console.log(`✅ Report logged:`, {
+      reportId: report.id,
+      reason: report.reason,
+      reported: report.reportedUsername
+    });
+    
+    // Acknowledge receipt
+    socket.emit('report-acknowledged', {
+      reportId: report.id,
+      message: 'Report received. Thank you for helping keep Froopy safe.'
+    });
   });
   
   // Handle disconnect
