@@ -39,6 +39,22 @@ socket.on('connect', () => {
   console.log('Socket connected:', socket.id);
   isOnline = true;
   
+  // Authenticate immediately if user is logged in
+  const userData = localStorage.getItem('user');
+  if (userData) {
+    try {
+      const user = JSON.parse(userData);
+      if (user.email) {
+        console.log('Auto-authenticating socket for user:', user.email);
+        socket.emit('authenticate', {
+          email: user.email
+        });
+      }
+    } catch (error) {
+      console.error('Error parsing user data for authentication:', error);
+    }
+  }
+  
   // Flush any pending messages
   if (messageQueue.length > 0) {
     flushMessageQueue();
@@ -48,6 +64,15 @@ socket.on('connect', () => {
 socket.on('disconnect', () => {
   console.log('Socket disconnected');
   // Don't set isOnline = false here, as we might still have network
+});
+
+// Authentication event handlers
+socket.on('authenticated', (data) => {
+  console.log('Socket authenticated successfully:', data);
+});
+
+socket.on('auth-error', (error) => {
+  console.error('Socket authentication failed:', error);
 });
 
 // Match-related functions
@@ -148,6 +173,19 @@ const flushMessageQueue = async () => {
 
 // Check if we should queue or send directly
 export const canSendDirectly = () => isOnline && socket.connected;
+
+// Manual authentication function (called when user logs in)
+export const authenticateSocket = (userData) => {
+  if (socket.connected && userData?.email) {
+    console.log('Manually authenticating socket for user:', userData.email);
+    socket.emit('authenticate', {
+      email: userData.email
+    });
+    
+    // Store in localStorage for auto-authentication on reconnect
+    localStorage.setItem('user', JSON.stringify(userData));
+  }
+};
 
 // Export socket for event listeners
 export default socket;

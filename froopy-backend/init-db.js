@@ -1,4 +1,5 @@
 // init-db.js - Database initialization script
+require('dotenv').config();
 const { Pool } = require('pg');
 
 // Use the DATABASE_URL from environment only
@@ -17,11 +18,19 @@ async function initializeDatabase() {
         id SERIAL PRIMARY KEY,
         email VARCHAR(255) UNIQUE NOT NULL,
         gender VARCHAR(10) NOT NULL,
+        username VARCHAR(100) UNIQUE,
         token VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
     console.log('✅ Users table created/verified');
+
+    // Add username column if it doesn't exist (migration)
+    await pool.query(`
+      ALTER TABLE users 
+      ADD COLUMN IF NOT EXISTS username VARCHAR(100) UNIQUE;
+    `);
+    console.log('✅ Username column added/verified');
 
     // Create active_sessions table
     await pool.query(`

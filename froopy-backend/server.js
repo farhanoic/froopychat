@@ -50,6 +50,54 @@ app.get('/health', (req, res) => {
   res.json({ status: 'vibing' });
 });
 
+// User registration endpoint
+app.post('/register', async (req, res) => {
+  try {
+    const { email, gender, password, username } = req.body;
+    
+    console.log('Registration attempt:', { email, gender, username });
+    
+    // Validate input
+    if (!email || !gender || !password || !username) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+    
+    // Check if user already exists
+    const existingUser = await pool.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email]
+    );
+    
+    if (existingUser.rows.length > 0) {
+      console.log('User already exists:', email);
+      return res.json({ 
+        success: true, 
+        message: 'User already registered',
+        user: { email, gender, username }
+      });
+    }
+    
+    // Insert new user
+    const result = await pool.query(
+      'INSERT INTO users (email, gender, username, created_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP) RETURNING id',
+      [email, gender, username]
+    );
+    
+    const userId = result.rows[0].id;
+    console.log(`✅ User registered: ${userId} (${username}) - ${email}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'User registered successfully',
+      user: { id: userId, email, gender, username }
+    });
+    
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
 // Test Gemini API endpoint
 app.get('/test-gemini', async (req, res) => {
   try {
@@ -462,9 +510,16 @@ function getUserIdFromSocket(socketId) {
     }
   }
   
-  // Check waiting users
+  // Check waiting users - now the key is userId and we check data.socketId
   for (const [userId, data] of waitingUsers.entries()) {
     if (data.socketId === socketId) {
+      return userId; // This is now the actual database user ID
+    }
+  }
+  
+  // Check online users map (userId -> socketId)
+  for (const [userId, storedSocketId] of onlineUsers.entries()) {
+    if (storedSocketId === socketId) {
       return userId;
     }
   }
@@ -1454,7 +1509,7 @@ function hasCommonInterests(interests1, interests2) {
  * Attempts to find a match for a specific user based on their current phase
  * @param {string} searchingUserId - Socket ID of user to find match for
  */
-function attemptMatch(searchingUserId) {
+async function attemptMatch(searchingUserId) {
   const searchingUser = waitingUsers.get(searchingUserId);
   if (!searchingUser) return;
 
@@ -1480,7 +1535,7 @@ function attemptMatch(searchingUserId) {
         
         if (genderMatch && interestMatch) {
           console.log('✅ Interest match found!');
-          createMatch(searchingUserId, waitingUserId, 'Phase 1');
+          await createMatch(searchingUserId, waitingUserId, 'Phase 1');
           return;
         }
       } else {
@@ -1488,7 +1543,7 @@ function attemptMatch(searchingUserId) {
         if (genderMatch) {
           const phase = (searchingUser.interestPhaseActive || waitingUser.interestPhaseActive) ? 'Mixed' : 'Phase 2';
           console.log(`✅ ${phase} match found!`);
-          createMatch(searchingUserId, waitingUserId, phase);
+          await createMatch(searchingUserId, waitingUserId, phase);
           return;
         }
       }
@@ -1504,7 +1559,7 @@ function attemptMatch(searchingUserId) {
  * @param {string} userId2 - Socket ID of second user
  * @param {string} phase - Which matching phase was used ('Phase 1' or 'Phase 2')
  */
-function createMatch(userId1, userId2, phase = 'Unknown') {
+async function createMatch(userId1, userId2, phase = 'Unknown') {
   // Clear all timers for both users
   clearAllUserTimers(userId1);
   clearAllUserTimers(userId2);
@@ -1532,9 +1587,38 @@ function createMatch(userId1, userId2, phase = 'Unknown') {
   waitingUsers.delete(userId1);
   waitingUsers.delete(userId2);
   
-  // Notify both users (keeping existing match-found event structure)
-  io.to(userId1).emit('match-found', { partnerId: userId2 });
-  io.to(userId2).emit('match-found', { partnerId: userId1 });
+  // Look up usernames for both users
+  let user1Username, user2Username;
+  try {
+    const user1Result = await pool.query('SELECT username, email FROM users WHERE id = $1', [userId1]);
+    const user2Result = await pool.query('SELECT username, email FROM users WHERE id = $1', [userId2]);
+    
+    const user1Data = user1Result.rows[0];
+    const user2Data = user2Result.rows[0];
+    
+    // Use username if exists, otherwise generate from email
+    user1Username = user1Data?.username || (user1Data?.email ? user1Data.email.split('@')[0] + Math.floor(Math.random() * 100) : null);
+    user2Username = user2Data?.username || (user2Data?.email ? user2Data.email.split('@')[0] + Math.floor(Math.random() * 100) : null);
+  } catch (error) {
+    console.error('Error looking up usernames for match:', error);
+    // Fallback to just partner IDs if username lookup fails
+    user1Username = null;
+    user2Username = null;
+  }
+  
+  // Get socket IDs for emitting events
+  const user1SocketId = user1.socketId;
+  const user2SocketId = user2.socketId;
+  
+  // Notify both users with usernames included
+  io.to(user1SocketId).emit('match-found', { 
+    partnerId: userId2,
+    partnerUsername: user2Username || `user${userId2}` // Fallback to readable format
+  });
+  io.to(user2SocketId).emit('match-found', { 
+    partnerId: userId1,
+    partnerUsername: user1Username || `user${userId1}` // Fallback to readable format
+  });
   
   // Track match statistics for monitoring
   global.matchStats = global.matchStats || { phase1: 0, phase2: 0 };
@@ -1765,11 +1849,83 @@ app.get('/test-bot-timer/:userId', (req, res) => {
 io.on('connection', (socket) => {
   console.log('Someone connected!', socket.id);
   
+  // Handle socket authentication - frontend should send this immediately after connection
+  socket.on('authenticate', async (authData) => {
+    try {
+      const { email } = authData;
+      console.log('Authentication attempt:', { email, socketId: socket.id });
+      
+      // Find user by email (simplified authentication for this system)
+      const userResult = await pool.query(
+        'SELECT id, username, gender FROM users WHERE email = $1',
+        [email]
+      );
+      
+      if (userResult.rows.length === 0) {
+        console.error('Authentication failed - user not found:', email);
+        socket.emit('auth-error', { message: 'Authentication failed' });
+        return;
+      }
+      
+      const user = userResult.rows[0];
+      const userId = user.id;
+      
+      // Store user ID in socket
+      socket.userId = userId;
+      
+      // Update or create active session
+      await pool.query(`
+        INSERT INTO active_sessions (user_id, socket_id, created_at)
+        VALUES ($1, $2, CURRENT_TIMESTAMP)
+        ON CONFLICT (user_id) 
+        DO UPDATE SET socket_id = $2, created_at = CURRENT_TIMESTAMP
+      `, [userId, socket.id]);
+      
+      // Track online status
+      onlineUsers.set(userId, socket.id);
+      
+      console.log(`✅ User authenticated: ${userId} (${user.username || 'no-username'}) via socket ${socket.id}`);
+      socket.emit('authenticated', { 
+        userId: userId, 
+        username: user.username,
+        success: true 
+      });
+      
+    } catch (error) {
+      console.error('Authentication error:', error);
+      socket.emit('auth-error', { message: 'Authentication failed' });
+    }
+  });
+  
   // Handle find match - Phased Timeout Implementation  
   socket.on('find-match', async (preferences) => {
     // Phase 3 Chunk 9: Input validation and safety checks
     if (!preferences || typeof preferences !== 'object') {
       console.warn('Invalid preferences received from', socket.id);
+      return;
+    }
+    
+    // CRITICAL FIX: Get actual user ID from socket
+    let userId = socket.userId;
+    if (!userId) {
+      // If socket.userId not set, try to get from active_sessions table
+      try {
+        const sessionResult = await pool.query(
+          'SELECT user_id FROM active_sessions WHERE socket_id = $1',
+          [socket.id]
+        );
+        if (sessionResult.rows.length > 0) {
+          userId = sessionResult.rows[0].user_id;
+          socket.userId = userId; // Store for future use
+        }
+      } catch (error) {
+        console.error('Error getting user ID from session:', error);
+      }
+    }
+    
+    if (!userId) {
+      console.error('No user ID found for socket:', socket.id);
+      socket.emit('error', { message: 'User authentication required' });
       return;
     }
     
@@ -1782,6 +1938,7 @@ io.on('connection', (socket) => {
     };
     
     console.log('🎯 Find-match request:', {
+      userId: userId,
       socketId: socket.id.substring(0, 8) + '...',
       gender: safePreferences.userGender,
       lookingFor: safePreferences.lookingFor,
@@ -1789,14 +1946,15 @@ io.on('connection', (socket) => {
       duration: safePreferences.searchDuration
     });
 
-    // Clear any existing timeout for this user
-    if (phaseTimeouts.has(socket.id)) {
-      clearTimeout(phaseTimeouts.get(socket.id));
-      phaseTimeouts.delete(socket.id);
+    // Clear any existing timeout for this user - use userId now
+    if (phaseTimeouts.has(userId)) {
+      clearTimeout(phaseTimeouts.get(userId));
+      phaseTimeouts.delete(userId);
     }
 
-    // Store user in waiting pool with phase flag
-    waitingUsers.set(socket.id, {
+    // CRITICAL FIX: Store user in waiting pool with USER ID as key, not socket ID
+    waitingUsers.set(userId, {
+      userId: userId,
       socketId: socket.id,
       userGender: safePreferences.userGender,
       lookingFor: safePreferences.lookingFor,
@@ -1811,53 +1969,56 @@ io.on('connection', (socket) => {
     if (duration !== null && safePreferences.interests && safePreferences.interests.length > 0) {
       console.log(`⏰ Setting phase timeout: ${safePreferences.searchDuration}`);
       
-      const timeoutId = setTimeout(() => {
-        const user = waitingUsers.get(socket.id);
+      const timeoutId = setTimeout(async () => {
+        const user = waitingUsers.get(userId);
         if (user && user.interestPhaseActive) {
-          console.log(`🔄 Phase transition for ${socket.id.substring(0, 8)}: Interest → Gender-only`);
+          console.log(`🔄 Phase transition for user ${userId}: Interest → Gender-only`);
           user.interestPhaseActive = false;
           
-          // Emit phase change to user
+          // Emit phase change to user via socket
           socket.emit('search-phase-changed', { phase: 'gender-only' });
           
           // Try matching again with gender-only
-          attemptMatch(socket.id);
+          await attemptMatch(userId);
         }
-        phaseTimeouts.delete(socket.id);
+        phaseTimeouts.delete(userId);
       }, duration);
       
-      phaseTimeouts.set(socket.id, timeoutId);
+      phaseTimeouts.set(userId, timeoutId);
     }
 
     // ADD: Set up 60-second bot activation timer
     const botTimer = setTimeout(() => {
-      console.log(`60 seconds elapsed for user ${socket.id}, checking for bot activation...`);
+      console.log(`60 seconds elapsed for user ${userId}, checking for bot activation...`);
       
       // Check if user is still waiting and bot is available
-      if (waitingUsers.has(socket.id) && isBotAvailable()) {
-        console.log(`Activating bot for user ${socket.id}`);
-        activateBotForUser(socket.id, socket.id);
+      if (waitingUsers.has(userId) && isBotAvailable()) {
+        console.log(`Activating bot for user ${userId}`);
+        activateBotForUser(userId, socket.id);
       } else {
-        console.log(`Bot activation skipped for user ${socket.id} - waiting: ${waitingUsers.has(socket.id)}, bot available: ${isBotAvailable()}`);
+        console.log(`Bot activation skipped for user ${userId} - waiting: ${waitingUsers.has(userId)}, bot available: ${isBotAvailable()}`);
       }
     }, 60000); // 60 seconds
     
     // Store the timer reference
-    botActivationTimers.set(socket.id, botTimer);
-    console.log(`Bot activation timer set for user ${socket.id} - will activate in 60 seconds if no match`);
+    botActivationTimers.set(userId, botTimer);
+    console.log(`Bot activation timer set for user ${userId} - will activate in 60 seconds if no match`);
 
     // Attempt initial match
-    attemptMatch(socket.id);
+    await attemptMatch(userId);
   });
   
   // Handle cancel search
   socket.on('cancel-search', () => {
-    console.log(`User ${socket.id} cancelled search`);
+    const userId = socket.userId || getUserIdFromSocket(socket.id);
+    console.log(`User ${userId} (socket: ${socket.id}) cancelled search`);
     
-    // Clear all timers for this user
-    clearAllUserTimers(socket.id);
-    
-    waitingUsers.delete(socket.id);
+    if (userId) {
+      // Clear all timers for this user
+      clearAllUserTimers(userId);
+      
+      waitingUsers.delete(userId);
+    }
   });
 
   // Add message handler

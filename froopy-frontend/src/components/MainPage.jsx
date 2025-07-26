@@ -161,7 +161,7 @@ function SearchingView({ onCancel, interests, selectedDuration, searchPhase }) {
   );
 }
 
-function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partnerUsername, currentUsername, getAvatarUrl, getUserAvatar, handleTouchStartForBlock, handleTouchEndForBlock, isLongPressing, handleUsernamePress, handleUsernameRelease, handleContextMenu, addedFriends, _partner, chatMode = 'random', activeFriendInfo, socket, activeFriendId }) {
+function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partnerUsername, currentUsername, getAvatarUrl, getUserAvatar, handleContextMenu, addedFriends, _partner, chatMode = 'random', activeFriendInfo, socket, activeFriendId, showToastMessage }) {
   const [input, setInput] = useState('');
   const [isSkipping, setIsSkipping] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
@@ -169,12 +169,6 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
   const inputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   
-  // Touch state variables for swipe functionality
-  const [touchStart, setTouchStart] = useState(0);
-  const [isSwiping, setIsSwiping] = useState(false);
-  const [swipeDistance, setSwipeDistance] = useState(0);
-  const [showSwipeHint, setShowSwipeHint] = useState(true);
-  const [touchStartY, setTouchStartY] = useState(0);
   const chatContainerRef = useRef(null);
   
   // Auto-scroll to bottom when new messages arrive
@@ -199,14 +193,6 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
     };
   }, [isTyping]);
 
-  // Auto-hide swipe hint after 8 seconds
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowSwipeHint(false);
-    }, 8000); // Hide after 8 seconds
-    
-    return () => clearTimeout(timer);
-  }, []);
 
   // Format timestamp helper
   const formatTime = (timestamp) => {
@@ -274,139 +260,75 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
     onSkip();
   };
 
-  // Touch handler functions for swipe-to-skip
-  const handleTouchStart = (e) => {
-    setTouchStart(e.targetTouches[0].clientX);
-    setTouchStartY(e.targetTouches[0].clientY);
-    setIsSwiping(false);
-    setSwipeDistance(0);
-  };
-  
-  const handleTouchMove = (e) => {
-    const horizontalDistance = e.targetTouches[0].clientX - touchStart;
-    const verticalDistance = Math.abs(e.targetTouches[0].clientY - touchStartY);
-    
-    // Only swipe if horizontal movement is greater than vertical and it's a right swipe
-    if (Math.abs(horizontalDistance) > verticalDistance && horizontalDistance > 10) {
-      // Prevent message input focus during swipe
-      const messageInput = document.querySelector('input[type="text"]');
-      if (messageInput === document.activeElement) {
-        return; // Don't swipe while typing
-      }
-      
-      setIsSwiping(true);
-      setSwipeDistance(Math.min(horizontalDistance, 150)); // Cap at 150px
-      
-      // Prevent vertical scroll during horizontal swipe
-      e.preventDefault();
-      
-      // Hide hint after first swipe attempt
-      if (showSwipeHint) {
-        setShowSwipeHint(false);
-      }
-    }
-  };
-  
-  const handleTouchEnd = () => {
-    if (!isSwiping) return;
-    
-    const swipeThreshold = 100; // 100px to trigger skip
-    
-    if (swipeDistance > swipeThreshold) {
-      // Reset swipe states immediately
-      setSwipeDistance(0);
-      setIsSwiping(false);
-      
-      // Clear typing if active
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
-      }
-      if (isTyping) {
-        setIsTyping(false);
-        stopTyping();
-      }
-      
-      // console.log('Swipe skip triggered!'); // Dev log - cleaned up for production
-      handleSkip();
-    } else {
-      // Snap back
-      setSwipeDistance(0);
+  // Simple add friend handler
+  const handleAddFriend = () => {
+    // Don't allow adding bot as friend
+    if (!partnerUsername || partnerUsername === 'bot') {
+      return;
     }
     
-    // Reset states
-    setIsSwiping(false);
-    setTouchStart(0);
+    // Don't allow if already added this session
+    if (addedFriends.has(_partner)) {
+      showToastMessage('Already added as friend!', 'tangerine');
+      return;
+    }
+    
+    // Add friend
+    socket.emit('add-friend', { 
+      partnerId: _partner,
+      partnerUsername: partnerUsername 
+    });
   };
+
 
   return (
     <div 
       ref={chatContainerRef}
       className="relative flex flex-col h-screen bg-dark-navy" 
       style={{ 
-        height: '100dvh',
-        transform: `translateX(${swipeDistance}px)`,
-        transition: isSwiping ? 'none' : 'transform 0.3s ease-out',
-        opacity: 1 - (swipeDistance / 300) // Fade as swipe progresses
+        height: '100dvh'
       }}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
     >
-      {/* Skip indicator that appears during swipe */}
-      {isSwiping && swipeDistance > 50 && (
-        <div className="absolute left-4 top-1/2 transform -translate-y-1/2 
-                        bg-tangerine text-white px-4 py-2 rounded-full
-                        transition-opacity duration-200 z-10"
-             style={{ opacity: swipeDistance > 100 ? 1 : 0.5 }}>
-          <span className="font-medium">Skip →</span>
-        </div>
-      )}
       
       {/* Chat header with centered username and skip button - no avatar */}
       <div className="relative flex items-center justify-center p-4 border-b border-white/10">
         {/* Center: Username and status - centered without avatar */}
         <div className="text-center flex-1">
-          <h2 
-            className={`text-white font-semibold select-none truncate ${chatMode === 'random' ? 'cursor-pointer' : ''}
-                        ${isLongPressing ? 'opacity-70 scale-95' : ''}
-                        transition-all duration-200`}
-            {...(chatMode === 'random' ? {
-              onMouseDown: handleUsernamePress,
-              onMouseUp: handleUsernameRelease,
-              onMouseLeave: handleUsernameRelease,
-              onTouchStart: handleUsernamePress,
-              onTouchEnd: handleUsernameRelease,
-              onTouchCancel: handleUsernameRelease,
-              onContextMenu: handleContextMenu
-            } : {})}
-          >
-            {partnerUsername || 'Anonymous'}
-            {chatMode === 'friend' && (
-              <span className="ml-2 text-xs text-royal-blue">Friend</span>
+          <div className="flex items-center gap-2 justify-center">
+            <h2 className="text-white font-semibold select-none truncate">
+              {partnerUsername || 'Anonymous'}
+              {chatMode === 'friend' && (
+                <span className="ml-2 text-xs text-royal-blue">Friend</span>
+              )}
+              {chatMode === 'random' && addedFriends.has(_partner) && (
+                <span className="ml-2 text-xs text-blue-400">✓ Friend</span>
+              )}
+            </h2>
+            {/* Simple Add Friend button - only show for random chat and if not already added */}
+            {chatMode === 'random' && !addedFriends.has(_partner) && partnerUsername && partnerUsername !== 'bot' && (
+              <button 
+                onClick={handleAddFriend}
+                className="text-xs px-3 py-1 bg-royal-blue hover:bg-blue-600 text-white rounded-full transition-colors"
+              >
+                Add Friend
+              </button>
             )}
-            {chatMode === 'random' && addedFriends.has(_partner) && (
-              <span className="ml-2 text-xs text-blue-400">✓ Friend</span>
-            )}
-          </h2>
+          </div>
           <p className="text-sm text-white/70 truncate">
             {chatMode === 'friend' 
               ? (activeFriendInfo?.isOnline ? '🟢 Online' : '⚫ Offline')
               : partnerUsername === 'bot' ? '🤖 AI Companion' : 'Matched partner'
             }
           </p>
-          {/* Visual feedback during long press - only for random chat */}
-          {chatMode === 'random' && isLongPressing && (
-            <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-xs text-white/50 whitespace-nowrap">
-              Hold to add friend...
-            </div>
-          )}
         </div>
         
-        {/* Right: Skip/Exit button - positioned absolutely */}
+        {/* Right: Skip/Exit button - positioned absolutely with more padding from edge */}
         <button 
           onClick={handleSkip}
           disabled={isSkipping}
-          className="absolute right-4 bg-tangerine px-6 py-2 rounded-full text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+          className="absolute right-8 bg-tangerine px-6 py-2 rounded-full text-white hover:opacity-90 transition-opacity disabled:opacity-50 z-50 pointer-events-auto"
+          onTouchStart={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
         >
           {isSkipping ? (chatMode === 'friend' ? 'Exiting...' : 'Skipping...') : (chatMode === 'friend' ? 'Exit' : 'Skip')}
         </button>
@@ -419,20 +341,10 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
         </div>
       )}
 
-      {/* Swipe hint for new users */}
-      {showSwipeHint && (
-        <div className="mx-4 mb-2 p-3 bg-white/5 rounded-lg text-center
-                        animate-fade-in">
-          <p className="text-white/70 text-sm">
-            💡 Tip: Swipe right to skip to next person
-          </p>
-        </div>
-      )}
 
       {/* Messages */}
       <div 
         className="flex-1 overflow-y-auto p-4"
-        onTouchStart={(e) => e.stopPropagation()}
       >
         {messages.length === 0 ? (
           <div className="text-center text-white/50 mt-8">
@@ -568,8 +480,6 @@ function MainPage() {
   const [messageQueue, setMessageQueue] = useState([]);
   const [chatMessages, setChatMessages] = useState([]);
   const [isPartnerTyping, setIsPartnerTyping] = useState(false);
-  const [longPressTimer, setLongPressTimer] = useState(null);
-  const [isLongPressing, setIsLongPressing] = useState(false);
   
   // Friend system states
   const [friendsList, setFriendsList] = useState([]);
@@ -1028,32 +938,6 @@ function MainPage() {
     };
   }, [socket, friendCount, chatMode]);
   
-  // Long press completion handler - shows action menu
-  const handleLongPressComplete = () => {
-    setIsLongPressing(false);
-    setShowActionMenu(true); // Show menu instead of direct block
-  };
-
-  // Long press handling for blocking
-  const handleTouchStartForBlock = (e) => {
-    // Don't interfere with existing swipe-to-skip or buttons
-    if (e.target.closest('button')) return;
-    
-    const timer = setTimeout(() => {
-      setIsLongPressing(true);
-      handleLongPressComplete(); // Changed from handleBlockUser
-    }, 800); // 800ms for long press
-    
-    setLongPressTimer(timer);
-  };
-
-  const handleTouchEndForBlock = () => {
-    if (longPressTimer) {
-      clearTimeout(longPressTimer);
-      setLongPressTimer(null);
-    }
-    setIsLongPressing(false);
-  };
 
   const handleBlockUser = () => {
     if (!partnerUsername || !_partner) return;
@@ -1070,45 +954,6 @@ function MainPage() {
     }
   };
 
-  // Long press handlers for adding friends
-  const handleUsernamePress = () => {
-    // Don't allow adding bot as friend
-    if (!partnerUsername || partnerUsername === 'bot') {
-      return;
-    }
-    
-    // Don't allow if already added this session
-    if (addedFriends.has(_partner)) {
-      showToastMessage('Already added as friend!', 'tangerine');
-      return;
-    }
-    
-    setIsLongPressing(true);
-    const timer = setTimeout(() => {
-      // Vibrate if available (mobile feedback)
-      if (navigator.vibrate) {
-        navigator.vibrate(50);
-      }
-      
-      // Trigger friend add
-      socket.emit('add-friend', { 
-        partnerId: _partner,
-        partnerUsername: partnerUsername 
-      });
-      
-      setIsLongPressing(false);
-    }, 800); // 800ms long press
-    
-    setLongPressTimer(timer);
-  };
-
-  const handleUsernameRelease = () => {
-    if (longPressTimer) {
-      clearTimeout(longPressTimer);
-      setLongPressTimer(null);
-    }
-    setIsLongPressing(false);
-  };
 
   // Prevent context menu on long press
   const handleContextMenu = (e) => {
@@ -1306,27 +1151,11 @@ function MainPage() {
 
   // Settings Bottom Sheet Component
   const SettingsSheet = () => {
-    const [touchStart, setTouchStart] = useState(0);
-
     const handleLogout = () => {
       if (window.confirm('Are you sure you want to logout?')) {
         // Clear user context
         localStorage.removeItem('user');
         window.location.href = '/auth'; // Force redirect to auth
-      }
-    };
-
-    const handleTouchStart = (e) => {
-      setTouchStart(e.touches[0].clientY);
-    };
-
-    const handleTouchMove = (e) => {
-      const touchY = e.touches[0].clientY;
-      const diff = touchY - touchStart;
-      
-      // If swiped down more than 50px, close sheet
-      if (diff > 50) {
-        setShowSettings(false);
       }
     };
 
@@ -1352,17 +1181,23 @@ function MainPage() {
         {/* Enhanced Bottom Sheet */}
         <div 
           className={`fixed bottom-0 left-0 right-0 bg-gray-800 rounded-t-2xl z-50 transform transition-transform ${sheetTransition}`}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
         >
-          {/* Drag Handle */}
-          <div className="flex justify-center pt-3 pb-2">
-            <div className="w-12 h-1 bg-gray-600 rounded-full" />
+          {/* Header with close button */}
+          <div className="flex justify-between items-center pt-4 pb-3 px-6">
+            <h2 className="text-white text-xl font-semibold">Settings</h2>
+            <button 
+              onClick={() => setShowSettings(false)}
+              className="text-white/50 hover:text-white transition-colors p-1"
+              aria-label="Close settings"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
           
           {/* Settings Content */}
           <div className="px-6 pb-6 space-y-4">
-            <h2 className="text-white text-xl font-semibold">Settings</h2>
             
             {/* App Info */}
             <div className="bg-gray-700 rounded-lg p-4">
@@ -1580,11 +1415,6 @@ function MainPage() {
           getAvatarUrl={getAvatarUrl}
           getUserAvatar={getUserAvatar}
           isPartnerTyping={chatMode === 'friend' ? friendTypingStatus[activeFriendId] : isPartnerTyping}
-          handleTouchStartForBlock={handleTouchStartForBlock}
-          handleTouchEndForBlock={handleTouchEndForBlock}
-          isLongPressing={isLongPressing}
-          handleUsernamePress={handleUsernamePress}
-          handleUsernameRelease={handleUsernameRelease}
           handleContextMenu={handleContextMenu}
           addedFriends={addedFriends}
           _partner={_partner}
@@ -1592,6 +1422,7 @@ function MainPage() {
           activeFriendInfo={activeFriendInfo}
           socket={socket}
           activeFriendId={activeFriendId}
+          showToastMessage={showToastMessage}
           onSkip={chatMode === 'friend' ? exitFriendChat : () => {
             sendSkip();
             setState('PREFERENCES');

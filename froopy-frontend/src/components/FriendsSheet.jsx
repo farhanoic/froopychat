@@ -119,26 +119,6 @@ const FriendsSheet = ({ isOpen, onClose, friends, socket, onStartChat }) => {
     }
   };
   
-  // Handle swipe down to close (mobile)
-  const [touchStart, setTouchStart] = useState(0);
-  const [touchEnd, setTouchEnd] = useState(0);
-  
-  const handleTouchStart = (e) => {
-    setTouchStart(e.targetTouches[0].clientY);
-  };
-  
-  const handleTouchMove = (e) => {
-    setTouchEnd(e.targetTouches[0].clientY);
-  };
-  
-  const handleTouchEnd = () => {
-    if (!touchStart || !touchEnd) return;
-    const distance = touchStart - touchEnd;
-    const isSwipeDown = distance < -50;
-    if (isSwipeDown) {
-      onClose();
-    }
-  };
   
   return (
     <div 
@@ -166,21 +146,23 @@ const FriendsSheet = ({ isOpen, onClose, friends, socket, onStartChat }) => {
           // Ensure safe area for iPhone notch/home indicator
           paddingBottom: 'env(safe-area-inset-bottom)'
         }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
       >
-        {/* Handle bar */}
-        <div className="flex justify-center pt-3 pb-2">
-          <div className="w-12 h-1 bg-white/20 rounded-full" />
-        </div>
-        
-        {/* Header */}
-        <div className="px-4 pb-3">
+        {/* Header with close button */}
+        <div className="flex justify-between items-center pt-4 pb-3 px-4">
           <h2 id="friends-sheet-title" className="text-white text-xl font-semibold">
             Friends {friends.length > 0 && `(${friends.length})`}
           </h2>
+          <button 
+            onClick={onClose}
+            className="text-white/50 hover:text-white transition-colors p-1"
+            aria-label="Close friends"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
+        
         
         {/* Search input */}
         <div className="px-4 pb-3">
@@ -258,7 +240,7 @@ const FriendsSheet = ({ isOpen, onClose, friends, socket, onStartChat }) => {
             ) : (
               <div className="text-white/50 text-center py-8">
                 <p className="mb-2">No friends yet</p>
-                <p className="text-sm">Search for usernames above or long press during chat!</p>
+                <p className="text-sm">Search for usernames above or use Add Friend button during chat!</p>
               </div>
             )
           )}

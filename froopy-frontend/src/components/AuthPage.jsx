@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUser } from '../contexts/UserContext';
+import { authenticateSocket } from '../services/socket';
 
 // Username generator function
 const generateUsername = () => {
@@ -33,7 +34,7 @@ function AuthPage() {
   const navigate = useNavigate();
   
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (isProcessing) return; // Prevent multiple clicks
     
     console.log('handleContinue called with:', { email, password, gender, username });
@@ -69,10 +70,37 @@ function AuthPage() {
       // Only proceed if all validations passed
       if (validationPassed) {
         const userData = { email, gender, password, username };
-        console.log('All validations passed. Setting user data:', userData);
-        setUser(userData);
-        console.log('Calling navigate to /');
-        navigate('/');
+        console.log('All validations passed. Registering user:', userData);
+        
+        try {
+          // Register user in database
+          const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/register`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(userData)
+          });
+          
+          const result = await response.json();
+          
+          if (result.success) {
+            console.log('User registered successfully:', result);
+            setUser(userData);
+            
+            // Authenticate socket immediately
+            authenticateSocket(userData);
+            
+            console.log('Calling navigate to /');
+            navigate('/');
+          } else {
+            console.error('Registration failed:', result);
+            alert('Registration failed. Please try again.');
+          }
+        } catch (error) {
+          console.error('Registration error:', error);
+          alert('Registration failed. Please check your connection and try again.');
+        }
       }
     } finally {
       setIsProcessing(false);
