@@ -235,6 +235,252 @@ app.get('/test-bot-message', (req, res) => {
   });
 });
 
+// Notify all friends when user comes online/offline
+async function notifyFriendsOnlineStatus(userId, isOnline) {
+  try {
+    // Get all friends of this user
+    const friends = await getFriends(userId);
+    
+    console.log(`Notifying ${friends.length} friends that user ${userId} is ${isOnline ? 'online' : 'offline'}`);
+    
+    // Notify each online friend
+    friends.forEach(friend => {
+      const friendSocketId = onlineUsers.get(friend.id);
+      if (friendSocketId) {
+        io.to(friendSocketId).emit('friend-status-changed', {
+          friendId: userId,
+          isOnline
+        });
+      }
+    });
+  } catch (error) {
+    console.error('Error notifying friends:', error);
+  }
+}
+
+// Friend-related database functions
+async function addFriend(user1Id, user2Id) {
+  try {
+    // Ensure user1Id is always the smaller ID for consistency
+    const [smallerId, largerId] = user1Id < user2Id ? [user1Id, user2Id] : [user2Id, user1Id];
+    
+    // Insert friendship (will fail if already exists due to UNIQUE constraint)
+    const result = await pool.query(
+      'INSERT INTO friends (user1_id, user2_id) VALUES ($1, $2) RETURNING *',
+      [smallerId, largerId]
+    );
+    
+    console.log(`Friendship created between users ${smallerId} and ${largerId}`);
+    return result.rows[0];
+  } catch (error) {
+    if (error.code === '23505') { // Unique violation
+      console.log(`Friendship already exists between users ${user1Id} and ${user2Id}`);
+      return null;
+    }
+    console.error('Error adding friend:', error);
+    throw error;
+  }
+}
+
+async function getFriends(userId) {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        u.id,
+        u.username,
+        u.email,
+        u.gender,
+        f.created_at as friendship_date,
+        COALESCE(unread.count, 0) as unread_count
+      FROM friends f
+      JOIN users u ON 
+        CASE 
+          WHEN f.user1_id = $1 THEN u.id = f.user2_id
+          ELSE u.id = f.user1_id
+        END
+      LEFT JOIN (
+        SELECT 
+          sender_id,
+          COUNT(*) as count
+        FROM friend_messages
+        WHERE receiver_id = $1 AND is_read = false
+        GROUP BY sender_id
+      ) unread ON unread.sender_id = u.id
+      WHERE f.user1_id = $1 OR f.user2_id = $1
+      ORDER BY unread.count DESC NULLS LAST, f.created_at DESC
+    `, [userId]);
+    
+    console.log(`Found ${result.rows.length} friends for user ${userId} with unread counts`);
+    return result.rows;
+  } catch (error) {
+    console.error('Error getting friends:', error);
+    throw error;
+  }
+}
+
+async function areFriends(user1Id, user2Id) {
+  try {
+    const [smallerId, largerId] = user1Id < user2Id ? [user1Id, user2Id] : [user2Id, user1Id];
+    
+    const result = await pool.query(
+      'SELECT * FROM friends WHERE user1_id = $1 AND user2_id = $2',
+      [smallerId, largerId]
+    );
+    
+    return result.rows.length > 0;
+  } catch (error) {
+    console.error('Error checking friendship:', error);
+    throw error;
+  }
+}
+
+// Get friend messages between two users
+async function getFriendMessages(userId1, userId2, limit = 50) {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        fm.id,
+        fm.sender_id,
+        fm.receiver_id,
+        fm.message,
+        fm.created_at,
+        fm.is_read,
+        u.username as sender_username
+      FROM friend_messages fm
+      JOIN users u ON fm.sender_id = u.id
+      WHERE 
+        (fm.sender_id = $1 AND fm.receiver_id = $2) OR 
+        (fm.sender_id = $2 AND fm.receiver_id = $1)
+      ORDER BY fm.created_at DESC
+      LIMIT $3
+    `, [userId1, userId2, limit]);
+    
+    // Return in chronological order (reverse the DESC query)
+    return result.rows.reverse();
+  } catch (error) {
+    console.error('Error getting friend messages:', error);
+    return [];
+  }
+}
+
+// Save a friend message
+async function saveFriendMessage(senderId, receiverId, message) {
+  try {
+    const result = await pool.query(`
+      INSERT INTO friend_messages (sender_id, receiver_id, message)
+      VALUES ($1, $2, $3)
+      RETURNING *
+    `, [senderId, receiverId, message]);
+    
+    console.log(`Message saved from user ${senderId} to user ${receiverId}`);
+    return result.rows[0];
+  } catch (error) {
+    console.error('Error saving friend message:', error);
+    throw error;
+  }
+}
+
+// Mark messages as read
+async function markMessagesAsRead(userId, friendId) {
+  try {
+    const result = await pool.query(`
+      UPDATE friend_messages
+      SET is_read = true
+      WHERE receiver_id = $1 AND sender_id = $2 AND is_read = false
+      RETURNING id
+    `, [userId, friendId]);
+    
+    console.log(`Marked ${result.rows.length} messages as read`);
+    return result.rows.length;
+  } catch (error) {
+    console.error('Error marking messages as read:', error);
+    return 0;
+  }
+}
+
+// Get unread count for a specific friend
+async function getUnreadCount(userId, friendId) {
+  try {
+    const result = await pool.query(`
+      SELECT COUNT(*) as unread_count
+      FROM friend_messages
+      WHERE receiver_id = $1 AND sender_id = $2 AND is_read = false
+    `, [userId, friendId]);
+    
+    return parseInt(result.rows[0].unread_count);
+  } catch (error) {
+    console.error('Error getting unread count:', error);
+    return 0;
+  }
+}
+
+// Search users by username, excluding self and existing friends
+async function searchUsersByUsername(query, excludeUserId) {
+  try {
+    // Validate inputs
+    if (!query || query.trim().length < 3) {
+      return [];
+    }
+    
+    const result = await pool.query(`
+      SELECT u.id, u.username, u.gender 
+      FROM users u
+      WHERE u.username ILIKE $1 
+      AND u.id != $2
+      AND u.id NOT IN (
+        -- Exclude existing friends (check both directions)
+        SELECT CASE 
+          WHEN f.user1_id = $2 THEN f.user2_id 
+          ELSE f.user1_id 
+        END
+        FROM friends f
+        WHERE f.user1_id = $2 OR f.user2_id = $2
+      )
+      ORDER BY u.username ASC
+      LIMIT 10
+    `, [`%${query.trim()}%`, excludeUserId]);
+    
+    console.log(`Search for "${query}" by user ${excludeUserId} returned ${result.rows.length} results`);
+    return result.rows;
+  } catch (error) {
+    console.error('Error searching users:', error);
+    return [];
+  }
+}
+
+// Helper function to get userId from socket
+function getUserIdFromSocket(socketId) {
+  // Check activeMatches first
+  for (const [userId, match] of activeMatches.entries()) {
+    if (match.socket1 === socketId || match.socket2 === socketId) {
+      // Determine which user this socket belongs to
+      if (match.socket1 === socketId) {
+        return match.user1;
+      } else {
+        return match.user2;
+      }
+    }
+  }
+  
+  // Check waiting users
+  for (const [userId, data] of waitingUsers.entries()) {
+    if (data.socketId === socketId) {
+      return userId;
+    }
+  }
+  
+  // Bot matches are already handled in activeMatches check above
+  
+  console.error(`No userId found for socket ${socketId}`);
+  return null;
+}
+
+// Helper to get socket ID from user ID
+function getSocketIdFromUserId(userId) {
+  // Check online users map
+  return onlineUsers.get(userId) || null;
+}
+
 // Production debug endpoint (secured)
 app.get('/debug-waiting-pool', (req, res) => {
   // Only allow in development or with debug flag
@@ -530,11 +776,73 @@ app.get('/debug-phase-status', (req, res) => {
   });
 });
 
+// Debug endpoint for friends
+app.get('/debug-friends/:userId', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const friends = await getFriends(userId);
+    res.json({
+      userId,
+      friendCount: friends.length,
+      friends
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Debug endpoint to add test friendship
+app.post('/debug-add-friend', async (req, res) => {
+  try {
+    const { user1Id, user2Id } = req.body;
+    const friendship = await addFriend(user1Id, user2Id);
+    res.json({ success: true, friendship });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Debug endpoint to check friendship
+app.get('/debug-are-friends/:user1Id/:user2Id', async (req, res) => {
+  try {
+    const user1Id = parseInt(req.params.user1Id);
+    const user2Id = parseInt(req.params.user2Id);
+    const areFriendsResult = await areFriends(user1Id, user2Id);
+    res.json({ 
+      user1Id, 
+      user2Id, 
+      areFriends: areFriendsResult 
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Debug endpoint for username search
+app.get('/debug-search/:query', async (req, res) => {
+  try {
+    const query = req.params.query;
+    const userId = parseInt(req.query.userId) || 1; // Default to user 1
+    const results = await searchUsersByUsername(query, userId);
+    res.json({
+      query,
+      excludeUserId: userId,
+      resultCount: results.length,
+      results
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Store waiting users
 const waitingUsers = new Map();
 
 // Store active matches
 const activeMatches = new Map();
+
+// Track online users for friend status
+const onlineUsers = new Map(); // userId -> socketId
 
 // Track timeouts for phase transitions
 const phaseTimeouts = new Map();
@@ -1457,8 +1765,8 @@ app.get('/test-bot-timer/:userId', (req, res) => {
 io.on('connection', (socket) => {
   console.log('Someone connected!', socket.id);
   
-  // Handle find match - Phased Timeout Implementation
-  socket.on('find-match', (preferences) => {
+  // Handle find match - Phased Timeout Implementation  
+  socket.on('find-match', async (preferences) => {
     // Phase 3 Chunk 9: Input validation and safety checks
     if (!preferences || typeof preferences !== 'object') {
       console.warn('Invalid preferences received from', socket.id);
@@ -1775,10 +2083,355 @@ io.on('connection', (socket) => {
     });
   });
   
+  // Friend system events
+  socket.on('add-friend', async ({ partnerId, partnerUsername }) => {
+    console.log('Add friend request received:', { partnerId, partnerUsername });
+    
+    try {
+      // Get the current user's ID from the socket
+      const userId = getUserIdFromSocket(socket.id);
+      
+      if (!userId) {
+        socket.emit('error', { message: 'User not found' });
+        return;
+      }
+      
+      if (!partnerId || partnerId === 'bot') {
+        socket.emit('error', { message: 'Cannot add bot as friend' });
+        return;
+      }
+      
+      // Check if they're already friends
+      const alreadyFriends = await areFriends(userId, partnerId);
+      if (alreadyFriends) {
+        socket.emit('friend-already-added', { 
+          friendId: partnerId, 
+          friendUsername: partnerUsername 
+        });
+        return;
+      }
+      
+      // Add the friendship
+      const friendship = await addFriend(userId, partnerId);
+      
+      if (friendship) {
+        console.log(`Friendship created: User ${userId} added User ${partnerId} as friend`);
+        
+        // Notify the user who initiated
+        socket.emit('friend-added', { 
+          friendId: partnerId, 
+          friendUsername: partnerUsername 
+        });
+        
+        // Trigger friends list refresh
+        // Instead of emitting, directly get and send updated friends list
+        try {
+          const friends = await getFriends(userId);
+          const friendsWithStatus = friends.map(friend => ({
+            ...friend,
+            isOnline: onlineUsers.has(friend.id)
+          }));
+          socket.emit('friends-list', friendsWithStatus);
+        } catch (error) {
+          console.error('Error refreshing friends list after add:', error);
+        }
+        
+        // Optionally notify the partner if they're online
+        const partnerMatch = activeMatches.get(partnerId);
+        if (partnerMatch) {
+          const partnerSocketId = partnerMatch.socket1 === socket.id ? 
+            partnerMatch.socket2 : partnerMatch.socket1;
+          
+          io.to(partnerSocketId).emit('friend-added-by', {
+            friendId: userId,
+            message: 'You were added as a friend!'
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error adding friend:', error);
+      socket.emit('error', { message: 'Failed to add friend' });
+    }
+  });
+
+  // Handle get friends list
+  socket.on('get-friends', async () => {
+    console.log('Get friends request from socket:', socket.id);
+    
+    try {
+      const userId = getUserIdFromSocket(socket.id);
+      
+      if (!userId) {
+        console.log('No userId found for get-friends request');
+        socket.emit('friends-list', []);
+        return;
+      }
+      
+      // Check if this is a new online session
+      const wasOffline = !onlineUsers.has(userId) || onlineUsers.get(userId) !== socket.id;
+      
+      // Track this user as online
+      socket.userId = userId;
+      onlineUsers.set(userId, socket.id);
+      console.log(`User ${userId} tracked as online via get-friends`);
+      
+      // Get friends from database
+      const friends = await getFriends(userId);
+      
+      // Include online status
+      const friendsWithStatus = friends.map(friend => ({
+        ...friend,
+        isOnline: onlineUsers.has(friend.id)
+      }));
+      
+      console.log(`Sending ${friendsWithStatus.length} friends to user ${userId}`);
+      socket.emit('friends-list', friendsWithStatus);
+      
+      // Notify friends that this user is online (only if newly online)
+      if (wasOffline) {
+        await notifyFriendsOnlineStatus(userId, true);
+      }
+    } catch (error) {
+      console.error('Error getting friends:', error);
+      socket.emit('friends-list', []);
+    }
+  });
+
+  // Search users by username
+  socket.on('search-users', async ({ query }) => {
+    console.log('Search users request:', { query, socketId: socket.id });
+    
+    try {
+      // Get current user ID
+      const userId = getUserIdFromSocket(socket.id);
+      
+      if (!userId) {
+        console.log('No userId found for search request');
+        socket.emit('search-results', []);
+        return;
+      }
+      
+      // Don't search for very short queries
+      if (!query || query.trim().length < 3) {
+        socket.emit('search-results', []);
+        return;
+      }
+      
+      // Perform search
+      const results = await searchUsersByUsername(query, userId);
+      
+      // Add online status to results
+      const resultsWithStatus = results.map(user => ({
+        ...user,
+        isOnline: onlineUsers.has(user.id),
+        isFriend: false // These are all non-friends by definition
+      }));
+      
+      console.log(`Sending ${resultsWithStatus.length} search results for query "${query}"`);
+      socket.emit('search-results', resultsWithStatus);
+    } catch (error) {
+      console.error('Error in search-users:', error);
+      socket.emit('search-results', []);
+    }
+  });
+
+  // Add friend from search
+  socket.on('add-friend-from-search', async ({ friendId, friendUsername }) => {
+    console.log('Add friend from search:', { friendId, friendUsername });
+    
+    try {
+      const userId = getUserIdFromSocket(socket.id);
+      
+      if (!userId || !friendId) {
+        socket.emit('error', { message: 'Invalid user data' });
+        return;
+      }
+      
+      // Check if already friends (double-check)
+      const alreadyFriends = await areFriends(userId, friendId);
+      if (alreadyFriends) {
+        socket.emit('friend-already-added', { 
+          friendId, 
+          friendUsername 
+        });
+        return;
+      }
+      
+      // Add friendship
+      const friendship = await addFriend(userId, friendId);
+      
+      if (friendship) {
+        // Notify user
+        socket.emit('friend-added', { 
+          friendId, 
+          friendUsername 
+        });
+        
+        // Send updated friends list
+        socket.emit('get-friends');
+        
+        // Clear search results
+        socket.emit('search-results', []);
+      }
+    } catch (error) {
+      console.error('Error adding friend from search:', error);
+      socket.emit('error', { message: 'Failed to add friend' });
+    }
+  });
+
+  // Friend chat - get message history
+  socket.on('get-friend-messages', async ({ friendId }) => {
+    console.log('Get friend messages request:', { friendId, socketId: socket.id });
+    
+    try {
+      const userId = getUserIdFromSocket(socket.id);
+      
+      if (!userId || !friendId) {
+        socket.emit('friend-messages', { friendId, messages: [] });
+        return;
+      }
+      
+      // Check if they are actually friends
+      const areFriendsCheck = await areFriends(userId, friendId);
+      if (!areFriendsCheck) {
+        socket.emit('error', { message: 'Not friends with this user' });
+        return;
+      }
+      
+      // Get message history
+      const messages = await getFriendMessages(userId, friendId);
+      
+      // Mark messages as read
+      await markMessagesAsRead(userId, friendId);
+      
+      // Get friend info
+      const friendResult = await pool.query(
+        'SELECT id, username, gender FROM users WHERE id = $1',
+        [friendId]
+      );
+      
+      if (friendResult.rows.length === 0) {
+        socket.emit('error', { message: 'Friend not found' });
+        return;
+      }
+      
+      const friendInfo = {
+        ...friendResult.rows[0],
+        isOnline: onlineUsers.has(friendId)
+      };
+      
+      console.log(`Sending ${messages.length} messages for friend chat`);
+      socket.emit('friend-messages', { 
+        friendId, 
+        friendInfo,
+        messages 
+      });
+    } catch (error) {
+      console.error('Error getting friend messages:', error);
+      socket.emit('friend-messages', { friendId, messages: [] });
+    }
+  });
+
+  // Friend chat - send message
+  socket.on('friend-message', async ({ friendId, message }) => {
+    console.log('Friend message:', { friendId, message: message.substring(0, 50) });
+    
+    try {
+      const userId = getUserIdFromSocket(socket.id);
+      
+      if (!userId || !friendId || !message) {
+        socket.emit('error', { message: 'Invalid message data' });
+        return;
+      }
+      
+      // Verify friendship
+      const areFriendsCheck = await areFriends(userId, friendId);
+      if (!areFriendsCheck) {
+        socket.emit('error', { message: 'Not friends with this user' });
+        return;
+      }
+      
+      // Save message to database
+      const savedMessage = await saveFriendMessage(userId, friendId, message);
+      
+      // Add sender info
+      const messageWithSender = {
+        ...savedMessage,
+        sender_username: (await pool.query(
+          'SELECT username FROM users WHERE id = $1', 
+          [userId]
+        )).rows[0].username
+      };
+      
+      // Send back to sender for confirmation
+      socket.emit('friend-message-sent', messageWithSender);
+      
+      // Send to friend if online
+      const friendSocketId = getSocketIdFromUserId(friendId);
+      if (friendSocketId) {
+        io.to(friendSocketId).emit('friend-message-received', {
+          ...messageWithSender,
+          senderId: userId
+        });
+      }
+    } catch (error) {
+      console.error('Error sending friend message:', error);
+      socket.emit('error', { message: 'Failed to send message' });
+    }
+  });
+
+  // Friend chat - user is typing
+  socket.on('friend-typing', ({ friendId, isTyping }) => {
+    const userId = getUserIdFromSocket(socket.id);
+    
+    if (!userId || !friendId) return;
+    
+    const friendSocketId = getSocketIdFromUserId(friendId);
+    if (friendSocketId) {
+      io.to(friendSocketId).emit('friend-typing-status', {
+        userId,
+        isTyping
+      });
+    }
+  });
+
+  // Exit friend chat
+  socket.on('exit-friend-chat', () => {
+    console.log('User exiting friend chat');
+    // Could be used for cleanup or status updates
+  });
+
+  // Update unread count when messages are read
+  socket.on('mark-messages-read', async ({ friendId }) => {
+    try {
+      const userId = getUserIdFromSocket(socket.id);
+      
+      if (!userId || !friendId) return;
+      
+      const readCount = await markMessagesAsRead(userId, friendId);
+      
+      if (readCount > 0) {
+        console.log(`Marked ${readCount} messages as read for user ${userId} from friend ${friendId}`);
+        
+        // Send updated friends list with new unread counts
+        socket.emit('get-friends');
+      }
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+    }
+  });
+
   // Handle disconnect
   socket.on('disconnect', async () => {
     console.log('User disconnected:', socket.id);
     const userId = socket.userId;
+    
+    // Remove from online users tracking and notify friends
+    if (userId) {
+      await notifyFriendsOnlineStatus(userId, false);
+      onlineUsers.delete(userId);
+      console.log(`User ${userId} is now offline`);
+    }
 
     if (userId) {
       // Check if user was in bot conversation

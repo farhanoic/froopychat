@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUser } from '../contexts/UserContext';
 import socket, { findMatch, cancelSearch, sendMessage as socketSendMessage, sendSkip, onReconnecting, onReconnected, onReconnectError, startTyping, stopTyping, onPartnerTypingStart, onPartnerTypingStop, queueMessage, canSendDirectly, getMessageQueue } from '../services/socket';
+import FriendsSheet from './FriendsSheet';
 
 // View components
 function PreferencesView({ onPreferenceSelect, interests, setInterests, selectedDuration, setSelectedDuration, durations, getDurationButtonClass }) {
@@ -160,7 +161,7 @@ function SearchingView({ onCancel, interests, selectedDuration, searchPhase }) {
   );
 }
 
-function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partnerUsername, currentUsername, getAvatarUrl, getUserAvatar, handleTouchStartForBlock, handleTouchEndForBlock, isLongPressing }) {
+function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partnerUsername, currentUsername, getAvatarUrl, getUserAvatar, handleTouchStartForBlock, handleTouchEndForBlock, isLongPressing, handleUsernamePress, handleUsernameRelease, handleContextMenu, addedFriends, _partner, chatMode = 'random', activeFriendInfo, socket, activeFriendId }) {
   const [input, setInput] = useState('');
   const [isSkipping, setIsSkipping] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
@@ -361,47 +362,51 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
         </div>
       )}
       
-      {/* Chat header with avatar and skip button */}
+      {/* Chat header with avatar and skip/exit button */}
       <div className="flex justify-between items-center p-4 border-b border-white/10">
-        <div 
-          className="flex items-center gap-3 select-none"
-          onTouchStart={handleTouchStartForBlock}
-          onTouchEnd={handleTouchEndForBlock}
-          onMouseDown={(e) => {
-            // Desktop fallback - don't interfere with buttons
-            if (e.target.closest('button')) return;
-            
-            const timer = setTimeout(() => {
-              setIsLongPressing(false);
-              setShowActionMenu(true);
-            }, 800);
-            setLongPressTimer(timer);
-          }}
-          onMouseUp={handleTouchEndForBlock}
-          onMouseLeave={handleTouchEndForBlock}
-        >
-          {/* Partner avatar */}
-          {getAvatarUrl(partnerUsername) ? (
-            <img 
-              src={getAvatarUrl(partnerUsername)} 
-              alt={`${partnerUsername}'s avatar`}
-              className="w-10 h-10 rounded-full bg-gray-700 animate-pulse"
-              onLoad={(e) => {
-                e.target.classList.remove('animate-pulse');
-              }}
-              onError={(e) => {
-                e.target.style.opacity = '0.5';
-              }}
-            />
-          ) : (
-            <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center">
-              <span className="text-white text-sm">?</span>
-            </div>
-          )}
-          <span className="text-white font-medium flex items-center gap-2">
-            Anonymous
-            {isLongPressing && <span className="text-xs text-gray-400">Hold for options</span>}
-          </span>
+        <div className="flex items-center space-x-3">
+          {/* Partner/Friend avatar */}
+          <img
+            src={`https://api.dicebear.com/7.x/thumbs/svg?seed=${partnerUsername}&backgroundColor=2563EB`}
+            alt="Avatar"
+            className="w-12 h-12 rounded-full"
+          />
+          <div className="relative">
+            <h2 
+              className={`text-white font-semibold select-none ${chatMode === 'random' ? 'cursor-pointer' : ''}
+                          ${isLongPressing ? 'opacity-70 scale-95' : ''}
+                          transition-all duration-200`}
+              {...(chatMode === 'random' ? {
+                onMouseDown: handleUsernamePress,
+                onMouseUp: handleUsernameRelease,
+                onMouseLeave: handleUsernameRelease,
+                onTouchStart: handleUsernamePress,
+                onTouchEnd: handleUsernameRelease,
+                onTouchCancel: handleUsernameRelease,
+                onContextMenu: handleContextMenu
+              } : {})}
+            >
+              {partnerUsername || 'Anonymous'}
+              {chatMode === 'friend' && (
+                <span className="ml-2 text-xs text-royal-blue">Friend</span>
+              )}
+              {chatMode === 'random' && addedFriends.has(_partner) && (
+                <span className="ml-2 text-xs text-blue-400">✓ Friend</span>
+              )}
+            </h2>
+            <p className="text-sm text-white/70">
+              {chatMode === 'friend' 
+                ? (activeFriendInfo?.isOnline ? '🟢 Online' : '⚫ Offline')
+                : partnerUsername === 'bot' ? '🤖 AI Companion' : 'Matched partner'
+              }
+            </p>
+            {/* Visual feedback during long press - only for random chat */}
+            {chatMode === 'random' && isLongPressing && (
+              <div className="absolute -bottom-6 left-0 text-xs text-white/50">
+                Hold to add friend...
+              </div>
+            )}
+          </div>
         </div>
         
         <button 
@@ -409,7 +414,7 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
           disabled={isSkipping}
           className="bg-tangerine px-6 py-2 rounded-full text-white hover:opacity-90 transition-opacity disabled:opacity-50"
         >
-          {isSkipping ? 'Skipping...' : 'Skip'}
+          {isSkipping ? (chatMode === 'friend' ? 'Exiting...' : 'Skipping...') : (chatMode === 'friend' ? 'Exit' : 'Skip')}
         </button>
       </div>
 
@@ -443,30 +448,21 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
         ) : (
           <>
             {messages.map((msg, i) => {
-              const isYou = msg.isMine;
+              // Handle both random chat and friend chat message formats
+              const isYou = chatMode === 'friend' 
+                ? (msg.sender_id === parseInt(currentUsername) || msg.sender === 'You')  // Friend message format
+                : msg.isMine;  // Random chat format
               const msgUsername = isYou ? currentUsername : partnerUsername;
               
               return (
                 <div key={i} className={`mb-4 flex items-end gap-2 ${isYou ? 'justify-end' : 'justify-start'}`}>
                   {/* Avatar for partner messages (left side) */}
                   {!isYou && (
-                    getAvatarUrl(msgUsername) ? (
-                      <img 
-                        src={getAvatarUrl(msgUsername)}
-                        alt="Avatar"
-                        className="w-8 h-8 rounded-full flex-shrink-0 bg-gray-700 animate-pulse"
-                        onLoad={(e) => {
-                          e.target.classList.remove('animate-pulse');
-                        }}
-                        onError={(e) => {
-                          e.target.style.opacity = '0.5';
-                        }}
-                      />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-gray-700 flex-shrink-0 flex items-center justify-center">
-                        <span className="text-white text-xs">?</span>
-                      </div>
-                    )
+                    <img 
+                      src={`https://api.dicebear.com/7.x/thumbs/svg?seed=${msgUsername}&backgroundColor=2563EB`}
+                      alt="Avatar"
+                      className="w-8 h-8 rounded-full flex-shrink-0"
+                    />
                   )}
                   
                   {/* Message bubble */}
@@ -478,23 +474,27 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
                       : 'bg-white/10 text-white rounded-bl-none'
                   }`}>
                     <p className="break-words">{msg.message || msg.text}</p>
-                    <p className="text-xs opacity-70 mt-1">
-                      {formatTime(msg.timestamp)}
-                    </p>
+                    {chatMode === 'friend' && msg.created_at && (
+                      <p className="text-xs opacity-70 mt-1">
+                        {new Date(msg.created_at).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    )}
+                    {chatMode === 'random' && (
+                      <p className="text-xs opacity-70 mt-1">
+                        {formatTime(msg.timestamp)}
+                      </p>
+                    )}
                   </div>
                   
                   {/* Avatar for your messages (right side) */}
                   {isYou && (
                     <img 
-                      src={getUserAvatar()}
+                      src={`https://api.dicebear.com/7.x/thumbs/svg?seed=${currentUsername}&backgroundColor=2563EB`}
                       alt="Your avatar"
-                      className="w-8 h-8 rounded-full flex-shrink-0 bg-gray-700 animate-pulse"
-                      onLoad={(e) => {
-                        e.target.classList.remove('animate-pulse');
-                      }}
-                      onError={(e) => {
-                        e.target.style.opacity = '0.5';
-                      }}
+                      className="w-8 h-8 rounded-full flex-shrink-0"
                     />
                   )}
                 </div>
@@ -534,6 +534,22 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
               sendMessage();
             } else if (e.key !== 'Enter') {
               handleTyping();
+              // Friend typing indicator
+              if (chatMode === 'friend' && socket && activeFriendId) {
+                socket.emit('friend-typing', {
+                  friendId: activeFriendId,
+                  isTyping: true
+                });
+              }
+            }
+          }}
+          onBlur={() => {
+            // Stop friend typing indicator when input loses focus
+            if (chatMode === 'friend' && socket && activeFriendId) {
+              socket.emit('friend-typing', {
+                friendId: activeFriendId,
+                isTyping: false
+              });
             }
           }}
         />
@@ -560,6 +576,20 @@ function MainPage() {
   const [isPartnerTyping, setIsPartnerTyping] = useState(false);
   const [longPressTimer, setLongPressTimer] = useState(null);
   const [isLongPressing, setIsLongPressing] = useState(false);
+  
+  // Friend system states
+  const [friendsList, setFriendsList] = useState([]);
+  const [addedFriends, setAddedFriends] = useState(new Set()); // Track added friends in session
+  const [friends, setFriends] = useState([]);
+  const [friendCount, setFriendCount] = useState(0);
+  const [showFriendsSheet, setShowFriendsSheet] = useState(false); // For future use
+  
+  // Friend chat states
+  const [chatMode, setChatMode] = useState('random'); // 'random' or 'friend'
+  const [activeFriendId, setActiveFriendId] = useState(null);
+  const [activeFriendInfo, setActiveFriendInfo] = useState(null);
+  const [friendMessages, setFriendMessages] = useState({});
+  const [friendTypingStatus, setFriendTypingStatus] = useState({});
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState('');
   const [showActionMenu, setShowActionMenu] = useState(false);
@@ -636,6 +666,15 @@ function MainPage() {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     };
   }, []);
+
+  // Load friends on component mount
+  useEffect(() => {
+    // Only request friends if we have a valid socket connection
+    if (socket && socket.connected) {
+      console.log('Requesting friends list on mount');
+      socket.emit('get-friends');
+    }
+  }, []); // Empty dependency array - only run on mount
   
   // Listen for connection status changes
   useEffect(() => {
@@ -833,6 +872,115 @@ function MainPage() {
     socket.on('blocked-by-user', handleBlockedByUser);
     socket.on('report-acknowledged', handleReportAcknowledged);
     
+    // Friend system socket listeners
+    socket.on('friend-added', ({ friendId, friendUsername }) => {
+      console.log('Friend added:', friendUsername);
+      setAddedFriends(prev => new Set(prev).add(friendId));
+      showToastMessage(`${friendUsername} added as friend!`, 'royal-blue');
+      
+      // Request updated friends list
+      socket.emit('get-friends');
+    });
+
+    socket.on('friend-already-added', ({ friendUsername }) => {
+      showToastMessage(`${friendUsername} is already your friend!`, 'tangerine');
+    });
+
+    socket.on('friend-added-by', ({ friendId, message }) => {
+      showToastMessage(message, 'royal-blue');
+    });
+
+    // Listen for friends list updates
+    socket.on('friends-list', (friendsList) => {
+      console.log('Received friends list:', friendsList);
+      setFriends(friendsList);
+      setFriendCount(friendsList.length);
+    });
+
+    // Friend chat listeners
+    socket.on('friend-messages', ({ friendId, friendInfo, messages }) => {
+      console.log(`Received ${messages.length} messages for friend ${friendId}`);
+      
+      setActiveFriendInfo(friendInfo);
+      
+      // Store messages for this friend
+      setFriendMessages(prev => ({
+        ...prev,
+        [friendId]: messages
+      }));
+      
+      // If this is the active friend, display messages
+      if (activeFriendId === friendId) {
+        setChatMessages(messages);
+      }
+    });
+
+    socket.on('friend-message-sent', (message) => {
+      console.log('Friend message sent:', message);
+      
+      // Add to current messages if in friend chat
+      if (chatMode === 'friend' && activeFriendId === message.receiver_id) {
+        setChatMessages(prev => [...prev, message]);
+      }
+      
+      // Update stored messages
+      setFriendMessages(prev => ({
+        ...prev,
+        [message.receiver_id]: [...(prev[message.receiver_id] || []), message]
+      }));
+    });
+
+    socket.on('friend-message-received', (message) => {
+      console.log('Friend message received:', message);
+      
+      // If currently chatting with this friend, add to messages
+      if (chatMode === 'friend' && activeFriendId === message.senderId) {
+        setChatMessages(prev => [...prev, message]);
+      } else {
+        // Show notification toast
+        showToastMessage(`New message from ${message.sender_username}`, 'royal-blue');
+      }
+      
+      // Update stored messages
+      setFriendMessages(prev => ({
+        ...prev,
+        [message.senderId]: [...(prev[message.senderId] || []), message]
+      }));
+    });
+
+    socket.on('friend-typing-status', ({ userId, isTyping }) => {
+      setFriendTypingStatus(prev => ({
+        ...prev,
+        [userId]: isTyping
+      }));
+    });
+
+    // Friend online/offline status changes
+    socket.on('friend-status-changed', ({ friendId, isOnline }) => {
+      console.log(`Friend ${friendId} is now ${isOnline ? 'online' : 'offline'}`);
+      
+      // Update friends list
+      setFriends(prev => prev.map(friend => 
+        friend.id === friendId 
+          ? { ...friend, isOnline } 
+          : friend
+      ));
+      
+      // Update active friend info if chatting
+      if (chatMode === 'friend' && activeFriendId === friendId) {
+        setActiveFriendInfo(prev => prev ? { ...prev, isOnline } : prev);
+      }
+      
+      // Show toast notification
+      const friend = friends.find(f => f.id === friendId);
+      if (friend) {
+        showToastMessage(
+          `${friend.username} is now ${isOnline ? 'online' : 'offline'}`,
+          isOnline ? 'royal-blue' : 'gray'
+        );
+      }
+    });
+    
     return () => {
       socket.off('message', handleMessage);
       socket.off('partner-skipped', handlePartnerSkipped);
@@ -840,6 +988,15 @@ function MainPage() {
       socket.off('user-blocked', handleUserBlocked);
       socket.off('blocked-by-user', handleBlockedByUser);
       socket.off('report-acknowledged', handleReportAcknowledged);
+      socket.off('friend-added');
+      socket.off('friend-already-added');
+      socket.off('friend-added-by');
+      socket.off('friends-list');
+      socket.off('friend-messages');
+      socket.off('friend-message-sent');
+      socket.off('friend-message-received');
+      socket.off('friend-typing-status');
+      socket.off('friend-status-changed');
     };
   }, []);
   
@@ -855,6 +1012,27 @@ function MainPage() {
       setIsPartnerTyping(false);
     });
   }, []);
+
+  // Refresh friends list periodically for unread counts
+  useEffect(() => {
+    let refreshInterval;
+    
+    if (socket && socket.connected && friendCount > 0) {
+      // Refresh every 30 seconds if not in friend chat
+      refreshInterval = setInterval(() => {
+        if (chatMode !== 'friend') {
+          console.log('Refreshing friends list');
+          socket.emit('get-friends');
+        }
+      }, 30000);
+    }
+    
+    return () => {
+      if (refreshInterval) {
+        clearInterval(refreshInterval);
+      }
+    };
+  }, [socket, friendCount, chatMode]);
   
   // Long press completion handler - shows action menu
   const handleLongPressComplete = () => {
@@ -896,6 +1074,51 @@ function MainPage() {
         blockedUserId: _partner // _partner contains partner's socket ID
       });
     }
+  };
+
+  // Long press handlers for adding friends
+  const handleUsernamePress = () => {
+    // Don't allow adding bot as friend
+    if (!partnerUsername || partnerUsername === 'bot') {
+      return;
+    }
+    
+    // Don't allow if already added this session
+    if (addedFriends.has(_partner)) {
+      showToastMessage('Already added as friend!', 'tangerine');
+      return;
+    }
+    
+    setIsLongPressing(true);
+    const timer = setTimeout(() => {
+      // Vibrate if available (mobile feedback)
+      if (navigator.vibrate) {
+        navigator.vibrate(50);
+      }
+      
+      // Trigger friend add
+      socket.emit('add-friend', { 
+        partnerId: _partner,
+        partnerUsername: partnerUsername 
+      });
+      
+      setIsLongPressing(false);
+    }, 800); // 800ms long press
+    
+    setLongPressTimer(timer);
+  };
+
+  const handleUsernameRelease = () => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      setLongPressTimer(null);
+    }
+    setIsLongPressing(false);
+  };
+
+  // Prevent context menu on long press
+  const handleContextMenu = (e) => {
+    e.preventDefault();
   };
   
   const handlePreferenceSelect = (preference) => {
@@ -966,6 +1189,44 @@ function MainPage() {
   };
 
   // Helper function to show toast notifications
+  // Handler for starting friend chat
+  const startFriendChat = (friendId) => {
+    console.log('Starting friend chat with:', friendId);
+    
+    // Exit random chat if active
+    if (state === 'CHATTING' && chatMode === 'random') {
+      socket.emit('skip');
+    }
+    
+    // Switch to friend chat mode
+    setChatMode('friend');
+    setActiveFriendId(friendId);
+    setShowFriendsSheet(false);
+    setState('CHATTING'); // Show chat UI
+    setChatMessages([]); // Clear random chat messages
+    
+    // Load friend messages
+    socket.emit('get-friend-messages', { friendId });
+    
+    // Mark messages as read after a short delay
+    setTimeout(() => {
+      socket.emit('mark-messages-read', { friendId });
+    }, 1000);
+  };
+
+  // Handler for exiting friend chat
+  const exitFriendChat = () => {
+    console.log('Exiting friend chat');
+    
+    setChatMode('random');
+    setActiveFriendId(null);
+    setActiveFriendInfo(null);
+    setChatMessages([]);
+    setState('PREFERENCES');
+    
+    socket.emit('exit-friend-chat');
+  };
+
   const showToastMessage = (message, type = 'tangerine') => {
     setToastMessage(message);
     setShowToast(true);
@@ -979,6 +1240,7 @@ function MainPage() {
     
     return (
       <div className="absolute top-0 left-0 right-0 z-30 p-4">
+        {/* Settings gear - top left */}
         <button
           onClick={() => setShowSettings(true)}
           className="w-10 h-10 bg-gray-800 hover:bg-gray-700 rounded-full flex items-center justify-center transition-colors"
@@ -1004,6 +1266,46 @@ function MainPage() {
             />
           </svg>
         </button>
+
+        {/* Friends indicator - top right */}
+        {friendCount > 0 && (
+          <button
+            onClick={() => {
+              console.log('Opening friends sheet');
+              setShowFriendsSheet(true);
+            }}
+            className="fixed top-4 right-4 w-12 h-12 bg-royal-blue 
+                       rounded-full flex items-center justify-center
+                       text-white font-bold shadow-lg z-50
+                       transition-all duration-200 hover:scale-110
+                       active:scale-95 animate-in fade-in zoom-in relative"
+            aria-label={`${friendCount} friends`}
+          >
+            {/* Friend count */}
+            <span className={`transition-all duration-300`}>
+              {friendCount > 99 ? '99+' : friendCount}
+            </span>
+            
+            {/* Total unread badge */}
+            {(() => {
+              const totalUnread = friends.reduce((sum, f) => sum + (f.unread_count || 0), 0);
+              return totalUnread > 0 && (
+                <div className="absolute -top-1 -right-1 bg-tangerine text-white 
+                              text-xs font-bold rounded-full min-w-[16px] h-4 
+                              px-1 flex items-center justify-center border-2 
+                              border-dark-navy">
+                  {totalUnread > 9 ? '9+' : totalUnread}
+                </div>
+              );
+            })()}
+            
+            {/* Online indicator dot */}
+            {friends.some(f => f.isOnline) && (
+              <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 
+                            rounded-full border-2 border-dark-navy" />
+            )}
+          </button>
+        )}
       </div>
     );
   };
@@ -1279,15 +1581,24 @@ function MainPage() {
       {state === 'CHATTING' && (
         <ChattingView 
           messages={chatMessages}
-          partnerUsername={partnerUsername}
+          partnerUsername={chatMode === 'friend' ? activeFriendInfo?.username : partnerUsername}
           currentUsername={user?.username}
           getAvatarUrl={getAvatarUrl}
           getUserAvatar={getUserAvatar}
-          isPartnerTyping={isPartnerTyping}
+          isPartnerTyping={chatMode === 'friend' ? friendTypingStatus[activeFriendId] : isPartnerTyping}
           handleTouchStartForBlock={handleTouchStartForBlock}
           handleTouchEndForBlock={handleTouchEndForBlock}
           isLongPressing={isLongPressing}
-          onSkip={() => {
+          handleUsernamePress={handleUsernamePress}
+          handleUsernameRelease={handleUsernameRelease}
+          handleContextMenu={handleContextMenu}
+          addedFriends={addedFriends}
+          _partner={_partner}
+          chatMode={chatMode}
+          activeFriendInfo={activeFriendInfo}
+          socket={socket}
+          activeFriendId={activeFriendId}
+          onSkip={chatMode === 'friend' ? exitFriendChat : () => {
             sendSkip();
             setState('PREFERENCES');
             setPreferences(null);
@@ -1300,28 +1611,37 @@ function MainPage() {
             const messageText = message.text.trim();
             if (!messageText) return;
             
-            const outgoingMessage = {
-              text: messageText,
-              timestamp: Date.now(),
-              from: user?.username,
-              isMine: true
-            };
-            
-            // Optimistically add to UI
-            setChatMessages(prev => [...prev, outgoingMessage]);
-            
-            // Check if we can send directly or need to queue
-            if (canSendDirectly()) {
-              socketSendMessage({ text: messageText });
+            if (chatMode === 'friend') {
+              // Friend chat message
+              socket.emit('friend-message', {
+                friendId: activeFriendId,
+                message: messageText
+              });
             } else {
-              // Queue the message
-              queueMessage({ text: messageText });
+              // Random chat message
+              const outgoingMessage = {
+                text: messageText,
+                timestamp: Date.now(),
+                from: user?.username,
+                isMine: true
+              };
               
-              // Show offline toast
-              if (!navigator.onLine) {
-                setToastMessage('You\'re offline - messages will send when reconnected');
-                setShowToast(true);
-                setTimeout(() => setShowToast(false), 3000);
+              // Optimistically add to UI
+              setChatMessages(prev => [...prev, outgoingMessage]);
+              
+              // Check if we can send directly or need to queue
+              if (canSendDirectly()) {
+                socketSendMessage({ text: messageText });
+              } else {
+                // Queue the message
+                queueMessage({ text: messageText });
+                
+                // Show offline toast
+                if (!navigator.onLine) {
+                  setToastMessage('You\'re offline - messages will send when reconnected');
+                  setShowToast(true);
+                  setTimeout(() => setShowToast(false), 3000);
+                }
               }
             }
           }}
@@ -1329,10 +1649,19 @@ function MainPage() {
       )}
       </div>
       
-      {/* Add ActionMenu, ReportModal, and SettingsSheet - positioned relative to main container */}
+      {/* Add ActionMenu, ReportModal, SettingsSheet, and FriendsSheet - positioned relative to main container */}
       <ActionMenu />
       <ReportModal />
       <SettingsSheet />
+      
+      {/* Friends Sheet */}
+      <FriendsSheet 
+        isOpen={showFriendsSheet}
+        onClose={() => setShowFriendsSheet(false)}
+        friends={friends}
+        socket={socket}
+        onStartChat={startFriendChat}
+      />
     </div>
   );
 }
