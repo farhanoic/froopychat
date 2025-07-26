@@ -1,0 +1,116 @@
+# CodeRabbit Configuration for Froopy Chat
+# Ultra-minimalist mobile-first chat application
+
+# General Settings
+language: en-US
+early_access: false
+auto_review:
+  enabled: true
+  drafts: false
+
+# Review Focus Areas
+reviews:
+  # High Priority Areas
+  high_level_summary: true
+  poem: false
+  review_status: true
+  
+  # Code Quality Focus
+  path_filters:
+    - "!**/*.md"          # Skip markdown files (docs)
+    - "!**/test-*.js"     # Skip test files (already working)
+    - "!**/package-lock.json"  # Skip lock files
+    - "!**/*.png"         # Skip images
+    - "!**/*.jpg"         # Skip images
+  
+  # Froopy Chat Specific Rules
+  request_changes_workflow: false  # Don't block PRs, just suggest
+  
+# Chat Settings
+chat:
+  auto_reply: true
+
+# Custom Instructions for Froopy Chat
+instructions: |
+  You are reviewing code for Froopy Chat, an ultra-minimalist mobile-first chat application.
+  
+  ## Critical Architecture Rules (NEVER suggest changing):
+  1. **File Structure**: froopy-backend/ and froopy-frontend/ separation is SACRED
+  2. **Routes**: Only 2 routes (/auth and /) - never suggest adding more
+  3. **Dependencies**: Minimal dependencies (React, Express, Socket.io, PostgreSQL) - resist adding new ones
+  4. **Mobile-First**: All UI must be optimized for 375px iPhone width
+  5. **Socket Events**: Core events (find-match, message, skip, etc.) are production-tested - don't modify
+  
+  ## Review Focus Areas:
+  1. **Security**: SQL injection prevention, XSS protection, input validation
+  2. **Performance**: Mobile network optimization, memory management
+  3. **Real-time**: Socket.io best practices and connection handling
+  4. **State Management**: React state safety (no direct mutations)
+  5. **Database**: PostgreSQL query optimization and proper indexing
+  
+  ## Phase 6 Friends System Context:
+  - friends table with bidirectional relationships
+  - friend_messages table with is_read column for unread badges
+  - Real-time online/offline status tracking
+  - Long press friend addition (no friend requests)
+  - Bottom sheet UI pattern (not separate pages)
+  
+  ## Code Style Preferences:
+  - Tailwind CSS only (no CSS-in-JS or component libraries)
+  - Functional React components with hooks
+  - Raw SQL queries (no ORM)
+  - Minimal error handling (graceful degradation)
+  - Ultra-minimal UI (no explanatory text)
+  
+  ## What NOT to Suggest:
+  - Adding TypeScript (keep JavaScript simplicity)
+  - Complex state management (Redux, Zustand)
+  - UI component libraries (maintain minimal design)
+  - Additional backend frameworks or middlewares
+  - Desktop-first responsive design
+  - Complex testing frameworks (keep it simple)
+  
+  ## Review Tone:
+  - Praise working code patterns
+  - Focus on mobile performance and security
+  - Suggest optimizations, not architectural changes
+  - Respect the "working code > perfect code" philosophy
+  - Consider the "vibe coding" development approach
+
+# Specific File Patterns
+path_instructions:
+  - path: "froopy-backend/server.js"
+    instructions: |
+      This is the main server file. Focus on:
+      - Socket.io event handler security
+      - Database query optimization
+      - Memory leak prevention in Maps (waitingUsers, activeMatches, etc.)
+      - SQL injection prevention in all queries
+  
+  - path: "froopy-frontend/src/components/MainPage.jsx"
+    instructions: |
+      This is the core UI component with state management. Focus on:
+      - React state mutation safety
+      - Socket.io connection handling
+      - Mobile gesture optimization
+      - Performance in state updates
+  
+  - path: "froopy-frontend/src/components/FriendsSheet.jsx"
+    instructions: |
+      This is the friends UI component. Focus on:
+      - Touch gesture responsiveness
+      - Real-time update efficiency
+      - Mobile scrolling performance
+      - Avatar loading optimization
+  
+  - path: "froopy-backend/init-db.js"
+    instructions: |
+      Database initialization script. Focus on:
+      - Foreign key constraint validation
+      - Index optimization for queries
+      - Migration safety (IF NOT EXISTS patterns)
+      - Production database compatibility
+
+# Knowledge Base
+knowledge_base:
+  opt_out: false
