@@ -17,6 +17,7 @@ async function initializeDatabase() {
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
         email VARCHAR(255) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
         gender VARCHAR(10) NOT NULL,
         username VARCHAR(100) UNIQUE,
         token VARCHAR(255),
@@ -31,6 +32,13 @@ async function initializeDatabase() {
       ADD COLUMN IF NOT EXISTS username VARCHAR(100) UNIQUE;
     `);
     console.log('✅ Username column added/verified');
+
+    // Add password_hash column if it doesn't exist (migration)
+    await pool.query(`
+      ALTER TABLE users 
+      ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+    `);
+    console.log('✅ Password hash column added/verified');
 
     // Create active_sessions table
     await pool.query(`

@@ -10,6 +10,8 @@ const io = require('socket.io')(server, {
 });
 const cors = require('cors');
 const { Pool } = require('pg');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 // ADD THIS NEW IMPORT HERE
@@ -50,6 +52,31 @@ app.get('/health', (req, res) => {
   res.json({ status: 'vibing' });
 });
 
+// Check if email exists endpoint
+app.post('/check-email', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    // Validate input
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+    
+    // Check if user exists
+    const result = await pool.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email]
+    );
+    
+    console.log(`Email check for ${email}: ${result.rows.length > 0 ? 'exists' : 'new'}`);
+    
+    res.json({ exists: result.rows.length > 0 });
+  } catch (error) {
+    console.error('Check email error:', error);
+    res.status(500).json({ error: 'Failed to check email' });
+  }
+});
+
 // User registration endpoint
 app.post('/register', async (req, res) => {
   try {
@@ -62,39 +89,105 @@ app.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'All fields are required' });
     }
     
+    // Validate password length
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+    
     // Check if user already exists
     const existingUser = await pool.query(
-      'SELECT id FROM users WHERE email = $1',
+      'SELECT id, email, gender, username FROM users WHERE email = $1',
       [email]
     );
     
     if (existingUser.rows.length > 0) {
       console.log('User already exists:', email);
+      const user = existingUser.rows[0];
+      const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET || 'your-secret-key');
       return res.json({ 
         success: true, 
         message: 'User already registered',
-        user: { email, gender, username }
+        user: { id: user.id, email: user.email, gender: user.gender, username: user.username },
+        token
       });
     }
     
-    // Insert new user
+    // Hash password
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(password, saltRounds);
+    
+    // Insert new user WITH PASSWORD
     const result = await pool.query(
-      'INSERT INTO users (email, gender, username, created_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP) RETURNING id',
-      [email, gender, username]
+      'INSERT INTO users (email, password_hash, gender, username, created_at) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP) RETURNING id, email, gender, username',
+      [email, passwordHash, gender, username]
     );
     
-    const userId = result.rows[0].id;
-    console.log(`✅ User registered: ${userId} (${username}) - ${email}`);
+    const user = result.rows[0];
+    console.log(`✅ User registered: ${user.id} (${user.username}) - ${user.email}`);
+    
+    // Generate JWT token
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET || 'your-secret-key');
     
     res.json({ 
       success: true, 
       message: 'User registered successfully',
-      user: { id: userId, email, gender, username }
+      user: { id: user.id, email: user.email, gender: user.gender, username: user.username },
+      token
     });
     
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
+// User login endpoint
+app.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    console.log('Login attempt:', { email });
+    
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+    
+    // Find user by email
+    const result = await pool.query(
+      'SELECT id, email, password_hash, gender, username FROM users WHERE email = $1',
+      [email]
+    );
+    
+    if (result.rows.length === 0) {
+      console.log('User not found:', email);
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    
+    const user = result.rows[0];
+    
+    // Verify password
+    const validPassword = await bcrypt.compare(password, user.password_hash);
+    if (!validPassword) {
+      console.log('Invalid password for user:', email);
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    
+    console.log(`✅ User logged in: ${user.id} (${user.username}) - ${user.email}`);
+    
+    // Generate JWT token
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET || 'your-secret-key');
+    
+    res.json({ 
+      success: true,
+      message: 'Login successful',
+      user: { id: user.id, email: user.email, gender: user.gender, username: user.username },
+      token
+    });
+    
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed' });
   }
 });
 

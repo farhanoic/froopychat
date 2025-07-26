@@ -25,172 +25,204 @@ const generateUsername = () => {
 };
 
 function AuthPage() {
+  const [step, setStep] = useState('email'); // 'email' or 'auth'
   const [email, setEmail] = useState('');
-  const [gender, setGender] = useState('');
   const [password, setPassword] = useState('');
-  const [username, setUsername] = useState('');
+  const [gender, setGender] = useState('');
+  const [isExistingUser, setIsExistingUser] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const { setUser } = useUser();  
   const navigate = useNavigate();
   
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  
 
-  const handleContinue = async () => {
-    if (isProcessing) return; // Prevent multiple clicks
+  // Handle email submission and check if user exists
+  const handleEmailContinue = async () => {
+    if (isProcessing) return;
     
-    console.log('handleContinue called with:', { email, password, gender, username });
+    if (!email || !email.includes('@')) {
+      alert('Please enter a valid email');
+      return;
+    }
+    
     setIsProcessing(true);
     
     try {
-      let validationPassed = true;
+      // Check if user exists
+      const response = await fetch(`${API_URL}/check-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
       
-      if (!email || !email.includes('@')) {
-        console.log('Email validation failed:', email);
-        alert('Please enter a valid email');
-        validationPassed = false;
-      }
+      const { exists } = await response.json();
+      setIsExistingUser(exists);
+      setStep('auth');
       
-      if (!password || password.length < 6) {
-        console.log('Password validation failed:', password);
-        alert('Password must be at least 6 characters');
-        validationPassed = false;
-      }
-      
-      if (!gender) {
-        console.log('Gender validation failed:', gender);
-        alert('Please select your gender');
-        validationPassed = false;
-      }
-      
-      if (!username) {
-        console.log('Username validation failed:', username);
-        alert('Username not generated');
-        validationPassed = false;
-      }
-      
-      // Only proceed if all validations passed
-      if (validationPassed) {
-        const userData = { email, gender, password, username };
-        console.log('All validations passed. Registering user:', userData);
-        
-        try {
-          // Register user in database
-          const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/register`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(userData)
-          });
-          
-          const result = await response.json();
-          
-          if (result.success) {
-            console.log('User registered successfully:', result);
-            setUser(userData);
-            
-            // Authenticate socket immediately
-            authenticateSocket(userData);
-            
-            console.log('Calling navigate to /');
-            navigate('/');
-          } else {
-            console.error('Registration failed:', result);
-            alert('Registration failed. Please try again.');
-          }
-        } catch (error) {
-          console.error('Registration error:', error);
-          alert('Registration failed. Please check your connection and try again.');
-        }
-      }
+      console.log(`Email ${email} ${exists ? 'exists' : 'is new'} - showing ${exists ? 'login' : 'signup'} flow`);
+    } catch (error) {
+      console.error('Email check error:', error);
+      alert('Connection error. Please try again.');
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleGenderSelect = (selectedGender) => {
-    console.log('handleGenderSelect called with:', { email, password, selectedGender });
+  // Handle authentication (login or register)
+  const handleAuth = async () => {
+    if (isProcessing) return;
     
-    if (!email || !email.includes('@')) {
-      alert('Please enter your email first');
-      return;
-    }
-    
+    // Validate password
     if (!password || password.length < 6) {
       alert('Password must be at least 6 characters');
       return;
     }
     
-    setGender(selectedGender);
-    if (!username) { // Only generate once
-      try {
-        const generatedUsername = generateUsername();
-        setUsername(generatedUsername);
-      } catch (error) {
-        console.error('Error generating username:', error);
-        // Fallback username if generation fails
-        const fallbackUsername = `user${Date.now()}`;
-        setUsername(fallbackUsername);
-        alert('Username generation failed, using fallback. Please continue.');
-      }
+    // For new users, validate gender selection
+    if (!isExistingUser && !gender) {
+      alert('Please select your gender');
+      return;
     }
     
-    console.log('After gender selection:', { email, password, gender: selectedGender });
+    setIsProcessing(true);
+    
+    try {
+      if (isExistingUser) {
+        // Login existing user
+        const response = await fetch(`${API_URL}/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+          console.log('Login successful:', result.user.username);
+          setUser(result.user);
+          localStorage.setItem('token', result.token);
+          authenticateSocket(result.user);
+          navigate('/');
+        } else {
+          alert(result.error || 'Login failed. Please check your password.');
+        }
+      } else {
+        // Register new user
+        const username = generateUsername();
+        const userData = { email, password, gender, username };
+        
+        const response = await fetch(`${API_URL}/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(userData)
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+          console.log('Registration successful:', result.user.username);
+          setUser(result.user);
+          localStorage.setItem('token', result.token);
+          authenticateSocket(result.user);
+          navigate('/');
+        } else {
+          alert(result.error || 'Registration failed. Please try again.');
+        }
+      }
+    } catch (error) {
+      console.error('Auth error:', error);
+      alert('Connection error. Please try again.');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-dark-navy flex flex-col items-center justify-center p-4">
-      <h1 className="text-white text-3xl mb-8">Froopy</h1>
-      
-      {!gender ? (
-        <>
-          <input 
-            type="email"
-            placeholder="Your email"
-            className="w-full max-w-xs p-4 rounded-full bg-white/10 text-white placeholder-white/50"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          
-          <input
-            type="password"
-            placeholder="Choose a password"
-            className="w-full max-w-xs p-4 rounded-full bg-white/10 text-white placeholder-white/50 mt-4"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          
-          <div className="flex gap-4 mt-6">
-            <button 
-              onClick={() => handleGenderSelect('male')}
-              className="text-6xl hover:scale-110 transition-transform"
+    <div className="min-h-screen bg-dark-navy flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+        <h1 className="text-white text-3xl text-center mb-8">Froopy</h1>
+        
+        {step === 'email' && (
+          <div className="space-y-4">
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleEmailContinue()}
+              className="w-full px-4 py-3 bg-white/10 text-white placeholder-white/50 rounded-full focus:outline-none focus:ring-2 focus:ring-royal-blue"
+            />
+            <button
+              onClick={handleEmailContinue}
+              disabled={isProcessing}
+              className="w-full py-3 bg-royal-blue text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
             >
-              👨
-            </button>
-            <button 
-              onClick={() => handleGenderSelect('female')}
-              className="text-6xl hover:scale-110 transition-transform"
-            >
-              👩
+              {isProcessing ? 'Checking...' : 'Continue'}
             </button>
           </div>
-        </>
-      ) : (
-        <>
-          {gender && username && (
-            <div className="text-center mt-6 mb-4">
-              <p className="text-white/70 text-sm">You'll be known as:</p>
-              <p className="text-white text-xl font-medium mt-1">{username}</p>
+        )}
+        
+        {step === 'auth' && (
+          <div className="space-y-4">
+            <div className="text-center mb-4">
+              <p className="text-white/70 text-sm">
+                {isExistingUser ? 'Welcome back!' : 'Create your account'}
+              </p>
+              <p className="text-white text-lg">{email}</p>
             </div>
-          )}
-          <button 
-            onClick={handleContinue}
-            disabled={isProcessing}
-            className="bg-royal-blue text-white px-8 py-4 rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
-          >
-            {isProcessing ? 'Processing...' : 'Continue'}
-          </button>
-        </>
-      )}
+            
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleAuth()}
+              className="w-full px-4 py-3 bg-white/10 text-white placeholder-white/50 rounded-full focus:outline-none focus:ring-2 focus:ring-royal-blue"
+            />
+            
+            {!isExistingUser && (
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setGender('male')}
+                  className={`flex-1 py-3 rounded-full text-sm font-medium transition-colors ${
+                    gender === 'male' 
+                      ? 'bg-royal-blue text-white' 
+                      : 'bg-white/10 text-white/70 hover:bg-white/20'
+                  }`}
+                >
+                  👨 Male
+                </button>
+                <button
+                  onClick={() => setGender('female')}
+                  className={`flex-1 py-3 rounded-full text-sm font-medium transition-colors ${
+                    gender === 'female' 
+                      ? 'bg-royal-blue text-white' 
+                      : 'bg-white/10 text-white/70 hover:bg-white/20'
+                  }`}
+                >
+                  👩 Female
+                </button>
+              </div>
+            )}
+            
+            <button
+              onClick={handleAuth}
+              disabled={isProcessing}
+              className="w-full py-3 bg-royal-blue text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
+            >
+              {isProcessing ? 'Processing...' : (isExistingUser ? 'Login' : 'Sign Up')}
+            </button>
+            
+            <button
+              onClick={() => setStep('email')}
+              className="w-full py-2 text-white/50 text-sm hover:text-white/70 transition-colors"
+            >
+              ← Back to email
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
