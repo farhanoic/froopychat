@@ -372,7 +372,8 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
             if (e.target.closest('button')) return;
             
             const timer = setTimeout(() => {
-              handleLongPressComplete(); // Changed here too
+              setIsLongPressing(false);
+              setShowActionMenu(true);
             }, 800);
             setLongPressTimer(timer);
           }}
@@ -380,17 +381,23 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
           onMouseLeave={handleTouchEndForBlock}
         >
           {/* Partner avatar */}
-          <img 
-            src={getAvatarUrl(partnerUsername)} 
-            alt={`${partnerUsername}'s avatar`}
-            className="w-10 h-10 rounded-full bg-gray-700 animate-pulse"
-            onLoad={(e) => {
-              e.target.classList.remove('animate-pulse');
-            }}
-            onError={(e) => {
-              e.target.style.opacity = '0.5';
-            }}
-          />
+          {getAvatarUrl(partnerUsername) ? (
+            <img 
+              src={getAvatarUrl(partnerUsername)} 
+              alt={`${partnerUsername}'s avatar`}
+              className="w-10 h-10 rounded-full bg-gray-700 animate-pulse"
+              onLoad={(e) => {
+                e.target.classList.remove('animate-pulse');
+              }}
+              onError={(e) => {
+                e.target.style.opacity = '0.5';
+              }}
+            />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center">
+              <span className="text-white text-sm">?</span>
+            </div>
+          )}
           <span className="text-white font-medium flex items-center gap-2">
             Anonymous
             {isLongPressing && <span className="text-xs text-gray-400">Hold for options</span>}
@@ -443,17 +450,23 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
                 <div key={i} className={`mb-4 flex items-end gap-2 ${isYou ? 'justify-end' : 'justify-start'}`}>
                   {/* Avatar for partner messages (left side) */}
                   {!isYou && (
-                    <img 
-                      src={getAvatarUrl(msgUsername)}
-                      alt="Avatar"
-                      className="w-8 h-8 rounded-full flex-shrink-0 bg-gray-700 animate-pulse"
-                      onLoad={(e) => {
-                        e.target.classList.remove('animate-pulse');
-                      }}
-                      onError={(e) => {
-                        e.target.style.opacity = '0.5';
-                      }}
-                    />
+                    getAvatarUrl(msgUsername) ? (
+                      <img 
+                        src={getAvatarUrl(msgUsername)}
+                        alt="Avatar"
+                        className="w-8 h-8 rounded-full flex-shrink-0 bg-gray-700 animate-pulse"
+                        onLoad={(e) => {
+                          e.target.classList.remove('animate-pulse');
+                        }}
+                        onError={(e) => {
+                          e.target.style.opacity = '0.5';
+                        }}
+                      />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-gray-700 flex-shrink-0 flex items-center justify-center">
+                        <span className="text-white text-xs">?</span>
+                      </div>
+                    )
                   )}
                   
                   {/* Message bubble */}
@@ -464,7 +477,7 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
                         : 'bg-royal-blue text-white rounded-br-none'
                       : 'bg-white/10 text-white rounded-bl-none'
                   }`}>
-                    <p className="break-words">{msg.text}</p>
+                    <p className="break-words">{msg.message || msg.text}</p>
                     <p className="text-xs opacity-70 mt-1">
                       {formatTime(msg.timestamp)}
                     </p>
@@ -560,7 +573,7 @@ function MainPage() {
   const avatarCache = useRef(new Map());
   
   const getAvatarUrl = (username) => {
-    if (!username) return '';
+    if (!username) return null; // Return null instead of empty string
     
     // Check cache first
     if (avatarCache.current.has(username)) {
@@ -705,9 +718,13 @@ function MainPage() {
   useEffect(() => {
     const handleMatchFound = (data) => {
       console.log('Match found!', data);
-      setPartner(data.partnerId);
-      // Use partnerId as avatar seed for now - consistent per session
-      setPartnerUsername(data.partnerId); 
+      setPartner(data.partnerId || data.partnerUsername);
+      // Use actual partner username from bot or partnerId for regular users
+      setPartnerUsername(data.partnerUsername || data.partnerId); 
+      // Store partner avatar if provided (for bots)
+      if (data.partnerAvatar) {
+        avatarCache.current.set(data.partnerUsername || data.partnerId, data.partnerAvatar);
+      }
       setInterests(''); // Clear interests after match
       setSelectedDuration('30s'); // Reset to default
       setSearchPhase('interests'); // Reset phase for next search
