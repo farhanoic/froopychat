@@ -942,11 +942,12 @@ Your contextual response:`;
     
     // Context-aware fallbacks based on user intent
     const userIntent = analyzeUserMessage(userMessage);
+    const safeMessage = userMessage || '';
     
-    if (userIntent === 'confusion' || userMessage.toLowerCase().includes('samajh nahi')) {
+    if (userIntent === 'confusion' || safeMessage.toLowerCase().includes('samajh nahi')) {
       return ['matlab I was saying I am bored'];
     }
-    if (userIntent === 'clarification_needed' || userMessage.toLowerCase().includes('kya')) {
+    if (userIntent === 'clarification_needed' || safeMessage.toLowerCase().includes('kya')) {
       return ['I said I am feeling bored today'];
     }
     if (userIntent === 'greeting') {
@@ -1618,10 +1619,11 @@ io.on('connection', (socket) => {
       
     } else {
       // Existing logic for human-to-human chat
-      const partnerSocket = match.partnerSocket;
+      // For human matches, match IS the partner socket ID directly
+      const partnerSocket = match;
       io.to(partnerSocket).emit('message', {
         from: data.from,
-        message: data.message,
+        message: data.text || data.message,  // Handle both text and message properties
         timestamp: data.timestamp,
         avatar: data.avatar
       });

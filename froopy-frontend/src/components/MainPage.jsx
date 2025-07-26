@@ -749,7 +749,14 @@ function MainPage() {
   useEffect(() => {
     const handleMessage = (message) => {
       console.log('Received message:', message);
-      setChatMessages(prev => [...prev, { ...message, isMine: false }]);
+      // Ensure received messages are properly marked as not mine
+      const incomingMessage = {
+        text: message.message || message.text,
+        timestamp: message.timestamp || Date.now(),
+        from: message.from,
+        isMine: false
+      };
+      setChatMessages(prev => [...prev, incomingMessage]);
     };
     
     const handlePartnerSkipped = () => {
@@ -1293,13 +1300,15 @@ function MainPage() {
             const messageText = message.text.trim();
             if (!messageText) return;
             
-            const tempMessage = {
+            const outgoingMessage = {
               text: messageText,
-              timestamp: Date.now()
+              timestamp: Date.now(),
+              from: user?.username,
+              isMine: true
             };
             
             // Optimistically add to UI
-            setChatMessages(prev => [...prev, { ...tempMessage, isMine: true }]);
+            setChatMessages(prev => [...prev, outgoingMessage]);
             
             // Check if we can send directly or need to queue
             if (canSendDirectly()) {
