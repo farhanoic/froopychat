@@ -362,57 +362,51 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
         </div>
       )}
       
-      {/* Chat header with avatar and skip/exit button */}
-      <div className="flex justify-between items-center p-4 border-b border-white/10">
-        <div className="flex items-center space-x-3">
-          {/* Partner/Friend avatar */}
-          <img
-            src={`https://api.dicebear.com/7.x/thumbs/svg?seed=${partnerUsername}&backgroundColor=2563EB`}
-            alt="Avatar"
-            className="w-12 h-12 rounded-full"
-          />
-          <div className="relative">
-            <h2 
-              className={`text-white font-semibold select-none ${chatMode === 'random' ? 'cursor-pointer' : ''}
-                          ${isLongPressing ? 'opacity-70 scale-95' : ''}
-                          transition-all duration-200`}
-              {...(chatMode === 'random' ? {
-                onMouseDown: handleUsernamePress,
-                onMouseUp: handleUsernameRelease,
-                onMouseLeave: handleUsernameRelease,
-                onTouchStart: handleUsernamePress,
-                onTouchEnd: handleUsernameRelease,
-                onTouchCancel: handleUsernameRelease,
-                onContextMenu: handleContextMenu
-              } : {})}
-            >
-              {partnerUsername || 'Anonymous'}
-              {chatMode === 'friend' && (
-                <span className="ml-2 text-xs text-royal-blue">Friend</span>
-              )}
-              {chatMode === 'random' && addedFriends.has(_partner) && (
-                <span className="ml-2 text-xs text-blue-400">✓ Friend</span>
-              )}
-            </h2>
-            <p className="text-sm text-white/70">
-              {chatMode === 'friend' 
-                ? (activeFriendInfo?.isOnline ? '🟢 Online' : '⚫ Offline')
-                : partnerUsername === 'bot' ? '🤖 AI Companion' : 'Matched partner'
-              }
-            </p>
-            {/* Visual feedback during long press - only for random chat */}
-            {chatMode === 'random' && isLongPressing && (
-              <div className="absolute -bottom-6 left-0 text-xs text-white/50">
-                Hold to add friend...
-              </div>
+      {/* Chat header with centered username and skip button - no avatar */}
+      <div className="relative flex items-center justify-center p-4 border-b border-white/10">
+        {/* Center: Username and status - centered without avatar */}
+        <div className="text-center flex-1">
+          <h2 
+            className={`text-white font-semibold select-none truncate ${chatMode === 'random' ? 'cursor-pointer' : ''}
+                        ${isLongPressing ? 'opacity-70 scale-95' : ''}
+                        transition-all duration-200`}
+            {...(chatMode === 'random' ? {
+              onMouseDown: handleUsernamePress,
+              onMouseUp: handleUsernameRelease,
+              onMouseLeave: handleUsernameRelease,
+              onTouchStart: handleUsernamePress,
+              onTouchEnd: handleUsernameRelease,
+              onTouchCancel: handleUsernameRelease,
+              onContextMenu: handleContextMenu
+            } : {})}
+          >
+            {partnerUsername || 'Anonymous'}
+            {chatMode === 'friend' && (
+              <span className="ml-2 text-xs text-royal-blue">Friend</span>
             )}
-          </div>
+            {chatMode === 'random' && addedFriends.has(_partner) && (
+              <span className="ml-2 text-xs text-blue-400">✓ Friend</span>
+            )}
+          </h2>
+          <p className="text-sm text-white/70 truncate">
+            {chatMode === 'friend' 
+              ? (activeFriendInfo?.isOnline ? '🟢 Online' : '⚫ Offline')
+              : partnerUsername === 'bot' ? '🤖 AI Companion' : 'Matched partner'
+            }
+          </p>
+          {/* Visual feedback during long press - only for random chat */}
+          {chatMode === 'random' && isLongPressing && (
+            <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-xs text-white/50 whitespace-nowrap">
+              Hold to add friend...
+            </div>
+          )}
         </div>
         
+        {/* Right: Skip/Exit button - positioned absolutely */}
         <button 
           onClick={handleSkip}
           disabled={isSkipping}
-          className="bg-tangerine px-6 py-2 rounded-full text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+          className="absolute right-4 bg-tangerine px-6 py-2 rounded-full text-white hover:opacity-90 transition-opacity disabled:opacity-50"
         >
           {isSkipping ? (chatMode === 'friend' ? 'Exiting...' : 'Skipping...') : (chatMode === 'friend' ? 'Exit' : 'Skip')}
         </button>
@@ -1239,11 +1233,11 @@ function MainPage() {
     if (!user) return null;
     
     return (
-      <div className="absolute top-0 left-0 right-0 z-30 p-4">
-        {/* Settings gear - top left */}
+      <div className="absolute top-0 left-0 right-0 z-40 p-4">
+        {/* Settings gear - top left with improved styling */}
         <button
           onClick={() => setShowSettings(true)}
-          className="w-10 h-10 bg-gray-800 hover:bg-gray-700 rounded-full flex items-center justify-center transition-colors"
+          className="w-10 h-10 bg-gray-800/90 hover:bg-gray-700 rounded-full flex items-center justify-center transition-colors backdrop-blur-sm border border-white/10 shadow-lg"
           aria-label="Settings"
         >
           <svg 
