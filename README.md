@@ -2,27 +2,45 @@
 
 **One page, zero friction, pure chat** - A lightning-fast anonymous chat application built for mobile users.
 
-![Phase 1 Complete](https://img.shields.io/badge/Phase%201-Complete-brightgreen)
-![Tests](https://img.shields.io/badge/Tests-38%2F43%20Passing-green)
+![All 6 Phases Complete](https://img.shields.io/badge/All%206%20Phases-Complete-brightgreen)
+![Production Ready](https://img.shields.io/badge/Production-Ready%2090%25-success)
 ![Mobile First](https://img.shields.io/badge/Mobile-First-blue)
+![CodeRabbit Reviews](https://img.shields.io/coderabbit/prs/github/farhanoic/froopychat?utm_source=oss&utm_medium=github&utm_campaign=farhanoic%2Ffroopychat&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
 
 ## ✨ Features
 
-### Phase 1 (Complete)
+### 🎯 Complete Ultra-Minimalist Chat Experience
 - ⚡ **Instant matching** - Connect with users in seconds
 - 📱 **Mobile-optimized** - Perfect for iPhone SE (375px) and up
-- 🎯 **Gender-based matching** - Choose who you want to chat with
+- 🎯 **Interest + Gender matching** - Two-phase matching system
 - 💬 **Real-time messaging** - Socket.io powered chat
 - 🔄 **Skip feature** - Move to next conversation instantly
+- 🤖 **AI Bot Companion** - Indian female bot after 60 seconds
+- 👥 **Friends System** - Long press to add friends, persistent chats
+- 📱 **PWA Ready** - Installable on mobile home screen
 - 🎨 **Ultra-minimal UI** - Dark navy theme, zero clutter
+
+### 🚀 Advanced Features (All 6 Phases Complete)
+- 📊 **Interest Matching** - Optional interests with duration control
+- 🔄 **Auto-reconnection** - Handles flaky mobile networks
+- 👤 **Random Avatars** - DiceBear API integration
+- 🛡️ **Block/Report System** - User safety and moderation
+- ⚙️ **PWA Features** - Offline support, service worker
+- 🤖 **AI Conversations** - 3-minute bot conversations with natural flow
+- 💬 **Friend Chats** - Persistent chat history with friends
+- 📱 **Online Status** - Real-time friend online/offline indicators
+- 🔔 **Unread Badges** - Message count badges with auto-refresh
 
 ## 🛠️ Tech Stack
 
 - **Frontend**: React 18 + Vite + Tailwind CSS
 - **Backend**: Express.js + Socket.io
-- **Database**: PostgreSQL
-- **Testing**: Playwright E2E (43 comprehensive tests)
+- **Database**: PostgreSQL (complete Phase 6 schema)
+- **AI**: Google Gemini API (bot conversations)
+- **Testing**: Playwright E2E + Comprehensive verification
+- **Code Reviews**: CodeRabbit AI-powered reviews
 - **Mobile**: iPhone SE optimized (375x667 viewport)
+- **PWA**: Service worker + manifest for installation
 
 ## 🚀 Quick Start
 
