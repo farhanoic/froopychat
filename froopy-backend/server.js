@@ -4,22 +4,11 @@ const app = express();
 const server = require('http').createServer(app);
 const io = require('socket.io')(server, {
   cors: {
-    origin: [
-      'http://localhost:5173', 
-      'http://localhost:5174', 
-      'http://localhost:5175', 
-      'http://localhost:5176', 
-      'http://localhost:5177', 
-      'http://localhost:5178', 
-      'https://froopychat.vercel.app',
-      // Add wildcard support for all Vercel preview deployments
-      /https:\/\/.*\.vercel\.app$/,
-      // Add your custom domain if you have one
-      'https://froopy.chat'
-    ],
+    origin: true, // Allow all origins for now to test
     credentials: true,
-    methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+    exposedHeaders: ['Access-Control-Allow-Origin']
   },
   // Production websocket configuration for Render - polling first for better reliability
   transports: ['polling', 'websocket'],
@@ -69,22 +58,10 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 app.use(cors({
-  origin: [
-    'http://localhost:5173', 
-    'http://localhost:5174', 
-    'http://localhost:5175', 
-    'http://localhost:5176', 
-    'http://localhost:5177', 
-    'http://localhost:5178', 
-    'https://froopychat.vercel.app',
-    // Add wildcard support for all Vercel preview deployments
-    /https:\/\/.*\.vercel\.app$/,
-    // Add your custom domain if you have one
-    'https://froopy.chat'
-  ],
+  origin: true, // Allow all origins for now to test
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
   exposedHeaders: ['Access-Control-Allow-Origin']
 }));
 
