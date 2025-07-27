@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-const FriendsSheet = ({ isOpen, onClose, friends, socket, onStartChat }) => {
+const FriendsSheet = ({ isOpen, onClose, friends, friendsService, currentUserId, onStartChat, onFriendAdded, showToastMessage }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -31,9 +31,9 @@ const FriendsSheet = ({ isOpen, onClose, friends, socket, onStartChat }) => {
     }
   }, [isOpen, friends.length]);
   
-  // Debounced search effect
+  // Debounced search effect using friendsService
   useEffect(() => {
-    if (searchQuery.length >= 3) {
+    if (searchQuery.length >= 3 && friendsService && currentUserId) {
       setIsSearching(true);
       
       // Clear previous timeout
@@ -42,9 +42,20 @@ const FriendsSheet = ({ isOpen, onClose, friends, socket, onStartChat }) => {
       }
       
       // Set new timeout for debounced search
-      searchTimeoutRef.current = setTimeout(() => {
+      searchTimeoutRef.current = setTimeout(async () => {
         console.log('Searching for:', searchQuery);
-        socket.emit('search-users', { query: searchQuery });
+        try {
+          const results = await friendsService.searchUsers(searchQuery, currentUserId);
+          setSearchResults(results);
+          setIsSearching(false);
+        } catch (error) {
+          console.error('Search error:', error);
+          setSearchResults([]);
+          setIsSearching(false);
+          if (showToastMessage) {
+            showToastMessage('Search failed. Please try again.');
+          }
+        }
       }, 300); // 300ms debounce
     } else {
       setSearchResults([]);
@@ -57,39 +68,39 @@ const FriendsSheet = ({ isOpen, onClose, friends, socket, onStartChat }) => {
         clearTimeout(searchTimeoutRef.current);
       }
     };
-  }, [searchQuery, socket]);
+  }, [searchQuery, friendsService, currentUserId, showToastMessage]);
   
-  // Listen for search results
-  useEffect(() => {
-    const handleSearchResults = (results) => {
-      console.log('Received search results:', results);
-      setSearchResults(results);
-      setIsSearching(false);
-    };
-    
-    const handleFriendAdded = ({ friendUsername }) => {
-      console.log('Friend added from search:', friendUsername);
-      setAddingFriendId(null);
-      setSearchQuery(''); // Clear search after successful add
-    };
-    
-    socket.on('search-results', handleSearchResults);
-    socket.on('friend-added', handleFriendAdded);
-    
-    return () => {
-      socket.off('search-results', handleSearchResults);
-      socket.off('friend-added', handleFriendAdded);
-    };
-  }, [socket]);
+  // Note: Search results are now handled directly in the search effect above
+  // Friend addition success is handled in the handleAddFriend function
   
-  // Handle adding friend from search
-  const handleAddFriend = (user) => {
+  // Handle adding friend from search using friendsService
+  const handleAddFriend = async (user) => {
     console.log('Adding friend:', user);
     setAddingFriendId(user.id);
-    socket.emit('add-friend-from-search', {
-      friendId: user.id,
-      friendUsername: user.username
-    });
+    
+    try {
+      await friendsService.addFriend(currentUserId, user.username);
+      
+      console.log('Friend added successfully:', user.username);
+      setAddingFriendId(null);
+      setSearchQuery(''); // Clear search after successful add
+      
+      if (showToastMessage) {
+        showToastMessage(`Added ${user.username} as friend! 🎉`);
+      }
+      
+      // Refresh friends list in parent component
+      if (onFriendAdded) {
+        onFriendAdded();
+      }
+    } catch (error) {
+      console.error('Error adding friend:', error);
+      setAddingFriendId(null);
+      
+      if (showToastMessage) {
+        showToastMessage(error.message || 'Failed to add friend');
+      }
+    }
   };
   
   // Handle escape key and body scroll lock

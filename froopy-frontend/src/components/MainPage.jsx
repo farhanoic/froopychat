@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useUser } from '../contexts/UserContext';
-import socket, { findMatch, cancelSearch, sendMessage as socketSendMessage, sendSkip, onReconnecting, onReconnected, onReconnectError, startTyping, stopTyping, onPartnerTypingStart, onPartnerTypingStop, queueMessage, canSendDirectly, getMessageQueue } from '../services/socket';
+import { useUser } from '../contexts/UserContextSupabase';
+import { MatchingService } from '../services/matching';
+import { ChatService } from '../services/chat';
+import { friendsService } from '../services/friends';
 import FriendsSheet from './FriendsSheet';
 
 // View components
@@ -161,7 +163,7 @@ function SearchingView({ onCancel, interests, selectedDuration, searchPhase }) {
   );
 }
 
-function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partnerUsername, currentUsername, getAvatarUrl, getUserAvatar, handleContextMenu, addedFriends, _partner, chatMode = 'random', activeFriendInfo, socket, activeFriendId, showToastMessage }) {
+function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partnerUsername, currentUsername, getAvatarUrl, getUserAvatar, handleContextMenu, addedFriends, _partner, chatMode = 'random', activeFriendInfo, activeFriendId, showToastMessage, chatService }) {
   const [input, setInput] = useState('');
   const [isSkipping, setIsSkipping] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
@@ -186,12 +188,13 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
     return () => {
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
-        if (isTyping) {
-          stopTyping();
+        if (chatMode === 'random' && chatService) {
+          chatService.stopTyping();
         }
+        // Note: Friend typing will be implemented with Supabase in future phase
       }
     };
-  }, [isTyping]);
+  }, [isTyping, chatMode, chatService, activeFriendId]);
 
 
   // Format timestamp helper
@@ -202,33 +205,19 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
 
   // Typing handler function
   const handleTyping = () => {
-    // If not already typing, start
-    if (!isTyping) {
-      setIsTyping(true);
-      startTyping();
+    if (chatMode === 'random' && chatService) {
+      // Use ChatService for random chat typing
+      chatService.handleTyping();
     }
-    
-    // Clear existing timeout
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
-    
-    // Set new timeout to stop typing after 2 seconds
-    typingTimeoutRef.current = setTimeout(() => {
-      setIsTyping(false);
-      stopTyping();
-    }, 2000);
+    // Note: Friend chat typing will be implemented with Supabase in future phase
   };
   
   const sendMessage = () => {
     // Stop typing when sending
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
+    if (chatMode === 'random' && chatService) {
+      chatService.stopTyping();
     }
-    if (isTyping) {
-      setIsTyping(false);
-      stopTyping();
-    }
+    // Note: Friend chat typing will be implemented with Supabase in future phase
 
     const trimmedInput = input.trim();
     if (!trimmedInput) return;
@@ -249,19 +238,16 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
 
   const handleSkip = () => {
     // Clear typing state
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
+    if (chatMode === 'random' && chatService) {
+      chatService.stopTyping();
     }
-    if (isTyping) {
-      setIsTyping(false);
-      stopTyping();
-    }
+    // Note: Friend chat typing will be implemented with Supabase in future phase
     setIsSkipping(true);
     onSkip();
   };
 
-  // Simple add friend handler
-  const handleAddFriend = () => {
+  // Simple add friend handler for ChattingView
+  const handleAddFriendInChat = () => {
     // Don't allow adding bot as friend
     if (!partnerUsername || partnerUsername === 'bot') {
       return;
@@ -273,10 +259,10 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
       return;
     }
     
-    // Add friend
-    socket.emit('add-friend', { 
+    // Call the main handleAddFriend function
+    handleAddFriend({
       partnerId: _partner,
-      partnerUsername: partnerUsername 
+      partnerUsername: partnerUsername
     });
   };
 
@@ -307,7 +293,7 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
             {/* Simple Add Friend button - only show for random chat and if not already added */}
             {chatMode === 'random' && !addedFriends.has(_partner) && partnerUsername && partnerUsername !== 'bot' && (
               <button 
-                onClick={handleAddFriend}
+                onClick={handleAddFriendInChat}
                 className="text-xs px-3 py-1 bg-royal-blue hover:bg-blue-600 text-white rounded-full transition-colors"
               >
                 Add Friend
@@ -440,23 +426,10 @@ function ChattingView({ messages, onSkip, onSendMessage, isPartnerTyping, partne
               sendMessage();
             } else if (e.key !== 'Enter') {
               handleTyping();
-              // Friend typing indicator
-              if (chatMode === 'friend' && socket && activeFriendId) {
-                socket.emit('friend-typing', {
-                  friendId: activeFriendId,
-                  isTyping: true
-                });
-              }
             }
           }}
           onBlur={() => {
-            // Stop friend typing indicator when input loses focus
-            if (chatMode === 'friend' && socket && activeFriendId) {
-              socket.emit('friend-typing', {
-                friendId: activeFriendId,
-                isTyping: false
-              });
-            }
+            // Note: Friend typing will be implemented with Supabase in future phase
           }}
         />
       </div>
@@ -472,21 +445,23 @@ function MainPage() {
   const [interests, setInterests] = useState('');
   const [selectedDuration, setSelectedDuration] = useState('30s'); // Default 30s
   const [searchPhase, setSearchPhase] = useState('interests'); // 'interests' or 'gender-only'
-  const [isConnected, setIsConnected] = useState(socket.connected);
-  const [isReconnecting, setIsReconnecting] = useState(false);
-  const [reconnectionAttempts, setReconnectionAttempts] = useState(0);
+  const [isConnected, setIsConnected] = useState(true); // Always connected with Supabase
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
-  const [messageQueue, setMessageQueue] = useState([]);
   const [chatMessages, setChatMessages] = useState([]);
   const [isPartnerTyping, setIsPartnerTyping] = useState(false);
+  const [matchingService, setMatchingService] = useState(null);
+  const [chatService, setChatService] = useState(null);
+  const [currentMatchId, setCurrentMatchId] = useState(null);
   
-  // Friend system states
+  // Friend system states (using Supabase)
   const [friendsList, setFriendsList] = useState([]);
   const [addedFriends, setAddedFriends] = useState(new Set()); // Track added friends in session
   const [friends, setFriends] = useState([]);
   const [friendCount, setFriendCount] = useState(0);
-  const [showFriendsSheet, setShowFriendsSheet] = useState(false); // For future use
+  const [showFriendsSheet, setShowFriendsSheet] = useState(false);
+  const [friendsChannel, setFriendsChannel] = useState(null);
+  const [presenceChannel, setPresenceChannel] = useState(null);
   
   // Friend chat states
   const [chatMode, setChatMode] = useState('random'); // 'random' or 'friend'
@@ -533,7 +508,7 @@ function MainPage() {
     return getAvatarUrl(user?.username || 'default');
   };
   
-  const MAX_RECONNECTION_ATTEMPTS = 5;
+  // Removed Socket.io reconnection logic - Supabase handles connection automatically
 
   // Duration options
   const durations = ['15s', '30s', '1min', '∞'];
@@ -557,6 +532,23 @@ function MainPage() {
     }
   }, [user, navigate]);
 
+  // Initialize MatchingService when user is available
+  useEffect(() => {
+    if (user?.id) {
+      const service = new MatchingService(
+        user.id,
+        handleMatchFound,
+        handlePhaseChanged
+      );
+      setMatchingService(service);
+
+      // Cleanup on unmount
+      return () => {
+        service.destroy();
+      };
+    }
+  }, [user?.id]);
+
   // PWA install prompt listener
   useEffect(() => {
     const handleBeforeInstallPrompt = (e) => {
@@ -571,372 +563,203 @@ function MainPage() {
     };
   }, []);
 
-  // Load friends on component mount
+  // Initialize Friends System with Supabase
   useEffect(() => {
-    // Only request friends if we have a valid socket connection
-    if (socket && socket.connected) {
-      console.log('Requesting friends list on mount');
-      socket.emit('get-friends');
-    }
-  }, []); // Empty dependency array - only run on mount
-  
-  // Listen for connection status changes
-  useEffect(() => {
-    // console.log('MainPage mounted, socket:', socket.connected); // Dev log - cleaned up
-    
-    const handleConnect = () => {
-      // console.log('Socket connected'); // Dev log - cleaned up
-      setIsConnected(true);
-    };
-    
-    const handleDisconnect = () => {
-      // console.log('Socket disconnected'); // Dev log - cleaned up
-      setIsConnected(false);
-      setIsReconnecting(true);
-      setIsPartnerTyping(false);
+    if (user?.id) {
+      console.log('🤝 Initializing friends system for user:', user.id);
       
-      // Add disconnection handling during active chat
-      if (state === 'CHATTING' && !navigator.onLine) {
-        setToastMessage('Connection lost - messages will send when reconnected');
-      } else {
-        setToastMessage('Connection lost');
-      }
-      setShowToast(true);
-    };
-    
-    socket.on('connect', handleConnect);
-    socket.on('disconnect', handleDisconnect);
-    
-    // Add reconnection listeners
-    onReconnecting(() => {
-      setReconnectionAttempts(prev => {
-        const newAttempts = prev + 1;
-        
-        if (newAttempts >= MAX_RECONNECTION_ATTEMPTS) {
-          setToastMessage(`Connection failed after ${MAX_RECONNECTION_ATTEMPTS} attempts. Please refresh.`);
-          setIsReconnecting(false);
-          return newAttempts;
+      // Load initial friends list
+      loadFriends();
+      
+      // Subscribe to friends updates
+      const friendsUpdateChannel = friendsService.subscribeToFriendsUpdates(
+        user.id,
+        handleFriendsUpdated
+      );
+      setFriendsChannel(friendsUpdateChannel);
+      
+      // Subscribe to friend presence
+      const friendPresenceChannel = friendsService.subscribeToFriendStatus(
+        user.id,
+        handleFriendPresenceChanged
+      );
+      setPresenceChannel(friendPresenceChannel);
+      
+      // Cleanup on unmount
+      return () => {
+        console.log('🧹 Cleaning up friends system');
+        if (friendsUpdateChannel) {
+          friendsUpdateChannel.unsubscribe();
         }
-        
-        setIsReconnecting(true);
-        setToastMessage(`Reconnecting... (${newAttempts}/${MAX_RECONNECTION_ATTEMPTS})`);
-        setShowToast(true);
-        return newAttempts;
-      });
-    });
-    
-    onReconnected(() => {
-      setReconnectionAttempts(0); // Reset counter on successful connection
-      setIsReconnecting(false);
-      setIsConnected(true);
-      setToastMessage('Connected!');
-      
-      // Send queued messages
-      if (messageQueue.length > 0) {
-        messageQueue.forEach(msg => socketSendMessage(msg));
-        setMessageQueue([]);
-      }
-      
-      // Hide toast after 2 seconds
-      setTimeout(() => setShowToast(false), 2000);
-    });
-    
-    // Handle reconnection errors
-    onReconnectError(() => {
-      if (reconnectionAttempts >= MAX_RECONNECTION_ATTEMPTS) {
-        setToastMessage('Connection permanently failed. Please refresh the page.');
-        setIsReconnecting(false);
-        setShowToast(true);
-      }
-    });
-    
-    return () => {
-      // console.log('MainPage unmounting'); // Dev log - cleaned up
-      socket.off('connect', handleConnect);
-      socket.off('disconnect', handleDisconnect);
-    };
-  }, [messageQueue, reconnectionAttempts, state]);
+        if (friendPresenceChannel) {
+          friendPresenceChannel.unsubscribe();
+        }
+      };
+    }
+  }, [user?.id]);
   
-  // Listen for match found event
+  // Initialize ChatService when match is found
   useEffect(() => {
-    const handleMatchFound = (data) => {
-      console.log('Match found!', data);
-      setPartner(data.partnerId || data.partnerUsername);
-      // Use actual partner username from bot or partnerId for regular users
-      setPartnerUsername(data.partnerUsername || data.partnerId); 
-      // Store partner avatar if provided (for bots)
-      if (data.partnerAvatar) {
-        avatarCache.current.set(data.partnerUsername || data.partnerId, data.partnerAvatar);
-      }
-      setInterests(''); // Clear interests after match
-      setSelectedDuration('30s'); // Reset to default
-      setSearchPhase('interests'); // Reset phase for next search
-      setState('CHATTING');
+    if (currentMatchId && user?.id && !chatService) {
+      console.log('🚀 Initializing ChatService for match:', currentMatchId);
+      
+      const service = new ChatService(currentMatchId, user.id, handleNewMessage);
+      service.initialize().catch(error => {
+        console.error('Failed to initialize ChatService:', error);
+        setToastMessage('Failed to connect to chat. Please try again.');
+        setShowToast(true);
+      });
+      
+      setChatService(service);
+
+      return () => {
+        console.log('🧹 Cleaning up ChatService');
+        service.cleanup();
+      };
+    }
+  }, [currentMatchId, user?.id]);
+
+  // Listen for partner typing indicators
+  useEffect(() => {
+    const handlePartnerTyping = (event) => {
+      console.log('Partner typing event:', event.detail);
+      setIsPartnerTyping(event.detail.isTyping);
     };
-    
-    const handlePhaseChanged = (data) => {
-      console.log('🔄 Search phase changed:', data.phase);
-      setSearchPhase(data.phase === 'gender-only' ? 'gender-only' : 'interests');
-    };
-    
-    socket.on('match-found', handleMatchFound);
-    socket.on('search-phase-changed', handlePhaseChanged);
+
+    window.addEventListener('partner-typing', handlePartnerTyping);
     
     return () => {
-      socket.off('match-found', handleMatchFound);
-      socket.off('search-phase-changed', handlePhaseChanged);
+      window.removeEventListener('partner-typing', handlePartnerTyping);
     };
   }, []);
-
-  // Add message listener
-  useEffect(() => {
-    const handleMessage = (message) => {
-      console.log('Received message:', message);
-      // Ensure received messages are properly marked as not mine
-      const incomingMessage = {
-        text: message.message || message.text,
-        timestamp: message.timestamp || Date.now(),
-        from: message.from,
-        isMine: false
-      };
-      setChatMessages(prev => [...prev, incomingMessage]);
-    };
-    
-    const handlePartnerSkipped = () => {
-      console.log('Partner skipped');
-      alert('Your partner left the chat');
-      setState('PREFERENCES');
-      setPreferences(null);
-      setPartner(null);
-      setPartnerUsername(null); // Clear partner username
-      setChatMessages([]);
-      setSearchPhase('interests'); // Reset phase
-    };
-    
-    const handlePartnerDisconnected = () => {
-      console.log('Partner disconnected');
-      alert('Your partner disconnected');
-      setState('PREFERENCES');
-      setPreferences(null);
-      setPartner(null);
-      setPartnerUsername(null); // Clear partner username
-      setChatMessages([]);
-      setSearchPhase('interests'); // Reset phase
-    };
-
-    const handleUserBlocked = (data) => {
-      console.log('User blocked:', data);
-      setToastMessage(data.message || 'User blocked. Finding new match...');
-      setShowToast(true);
-      
-      // Reset to preferences state
-      setState('PREFERENCES');
-      setPreferences(null);
-      setPartner(null);
-      setPartnerUsername(null);
-      setChatMessages([]);
-      setSearchPhase('interests');
-      setIsPartnerTyping(false);
-      
-      // Auto-hide toast and return to preferences
-      setTimeout(() => {
-        setShowToast(false);
-      }, 3000);
-    };
-
-    const handleBlockedByUser = (data) => {
-      console.log('Blocked by user:', data);
-      setToastMessage(data.message || 'You have been blocked. Finding new match...');
-      setShowToast(true);
-      
-      // Same cleanup as above
-      setState('PREFERENCES');
-      setPreferences(null);
-      setPartner(null);
-      setPartnerUsername(null);
-      setChatMessages([]);
-      setSearchPhase('interests');
-      setIsPartnerTyping(false);
-      
-      // Auto-hide toast
-      setTimeout(() => {
-        setShowToast(false);
-      }, 3000);
-    };
-
-    const handleReportAcknowledged = (data) => {
-      console.log('Report acknowledged:', data);
-      // Toast already shown in handleReport, but log for debugging
-    };
-    
-    socket.on('message', handleMessage);
-    socket.on('partner-skipped', handlePartnerSkipped);
-    socket.on('partner-disconnected', handlePartnerDisconnected);
-    socket.on('user-blocked', handleUserBlocked);
-    socket.on('blocked-by-user', handleBlockedByUser);
-    socket.on('report-acknowledged', handleReportAcknowledged);
-    
-    // Friend system socket listeners
-    socket.on('friend-added', ({ friendId, friendUsername }) => {
-      console.log('Friend added:', friendUsername);
-      setAddedFriends(prev => new Set(prev).add(friendId));
-      showToastMessage(`${friendUsername} added as friend!`, 'royal-blue');
-      
-      // Request updated friends list
-      socket.emit('get-friends');
-    });
-
-    socket.on('friend-already-added', ({ friendUsername }) => {
-      showToastMessage(`${friendUsername} is already your friend!`, 'tangerine');
-    });
-
-    socket.on('friend-added-by', ({ friendId, message }) => {
-      showToastMessage(message, 'royal-blue');
-    });
-
-    // Listen for friends list updates
-    socket.on('friends-list', (friendsList) => {
-      console.log('Received friends list:', friendsList);
+  
+  // Friends System Functions
+  const loadFriends = async () => {
+    try {
+      console.log('📋 Loading friends list...');
+      const friendsList = await friendsService.getFriends(user.id);
       setFriends(friendsList);
       setFriendCount(friendsList.length);
-    });
+      console.log(`✅ Loaded ${friendsList.length} friends`);
+    } catch (error) {
+      console.error('Error loading friends:', error);
+      setToastMessage('Failed to load friends');
+      setShowToast(true);
+    }
+  };
 
-    // Friend chat listeners
-    socket.on('friend-messages', ({ friendId, friendInfo, messages }) => {
-      console.log(`Received ${messages.length} messages for friend ${friendId}`);
-      
-      setActiveFriendInfo(friendInfo);
-      
-      // Store messages for this friend
-      setFriendMessages(prev => ({
-        ...prev,
-        [friendId]: messages
-      }));
-      
-      // If this is the active friend, display messages
-      if (activeFriendId === friendId) {
-        setChatMessages(messages);
-      }
-    });
+  const handleFriendsUpdated = (payload) => {
+    console.log('👥 Friends updated:', payload);
+    // Reload friends when the friends table changes
+    loadFriends();
+  };
 
-    socket.on('friend-message-sent', (message) => {
-      console.log('Friend message sent:', message);
-      
-      // Add to current messages if in friend chat
-      if (chatMode === 'friend' && activeFriendId === message.receiver_id) {
-        setChatMessages(prev => [...prev, message]);
-      }
-      
-      // Update stored messages
-      setFriendMessages(prev => ({
-        ...prev,
-        [message.receiver_id]: [...(prev[message.receiver_id] || []), message]
-      }));
-    });
-
-    socket.on('friend-message-received', (message) => {
-      console.log('Friend message received:', message);
-      
-      // If currently chatting with this friend, add to messages
-      if (chatMode === 'friend' && activeFriendId === message.senderId) {
-        setChatMessages(prev => [...prev, message]);
-      } else {
-        // Show notification toast
-        showToastMessage(`New message from ${message.sender_username}`, 'royal-blue');
-      }
-      
-      // Update stored messages
-      setFriendMessages(prev => ({
-        ...prev,
-        [message.senderId]: [...(prev[message.senderId] || []), message]
-      }));
-    });
-
-    socket.on('friend-typing-status', ({ userId, isTyping }) => {
-      setFriendTypingStatus(prev => ({
-        ...prev,
-        [userId]: isTyping
-      }));
-    });
-
-    // Friend online/offline status changes
-    socket.on('friend-status-changed', ({ friendId, isOnline }) => {
-      console.log(`Friend ${friendId} is now ${isOnline ? 'online' : 'offline'}`);
-      
-      // Update friends list
-      setFriends(prev => prev.map(friend => 
-        friend.id === friendId 
-          ? { ...friend, isOnline } 
-          : friend
-      ));
-      
-      // Update active friend info if chatting
-      if (chatMode === 'friend' && activeFriendId === friendId) {
-        setActiveFriendInfo(prev => prev ? { ...prev, isOnline } : prev);
-      }
-      
-      // Show toast notification
-      const friend = friends.find(f => f.id === friendId);
-      if (friend) {
-        showToastMessage(
-          `${friend.username} is now ${isOnline ? 'online' : 'offline'}`,
-          isOnline ? 'royal-blue' : 'gray'
-        );
-      }
-    });
+  const handleFriendPresenceChanged = (presenceState) => {
+    console.log('👋 Friend presence changed:', presenceState);
     
-    return () => {
-      socket.off('message', handleMessage);
-      socket.off('partner-skipped', handlePartnerSkipped);
-      socket.off('partner-disconnected', handlePartnerDisconnected);
-      socket.off('user-blocked', handleUserBlocked);
-      socket.off('blocked-by-user', handleBlockedByUser);
-      socket.off('report-acknowledged', handleReportAcknowledged);
-      socket.off('friend-added');
-      socket.off('friend-already-added');
-      socket.off('friend-added-by');
-      socket.off('friends-list');
-      socket.off('friend-messages');
-      socket.off('friend-message-sent');
-      socket.off('friend-message-received');
-      socket.off('friend-typing-status');
-      socket.off('friend-status-changed');
-    };
-  }, []);
-  
-  // Typing event listeners
-  useEffect(() => {
-    onPartnerTypingStart(() => {
-      // console.log('Partner started typing'); // Dev log - cleaned up
-      setIsPartnerTyping(true);
-    });
-    
-    onPartnerTypingStop(() => {
-      // console.log('Partner stopped typing'); // Dev log - cleaned up
-      setIsPartnerTyping(false);
-    });
-  }, []);
+    // Update friends with online status
+    setFriends(prevFriends => 
+      prevFriends.map(friend => ({
+        ...friend,
+        isOnline: Object.keys(presenceState).some(key => 
+          presenceState[key]?.some(p => p.user_id === friend.id)
+        )
+      }))
+    );
+  };
 
-  // Refresh friends list periodically for unread counts
-  useEffect(() => {
-    let refreshInterval;
-    
-    if (socket && socket.connected && friendCount > 0) {
-      // Refresh every 30 seconds if not in friend chat
-      refreshInterval = setInterval(() => {
-        if (chatMode !== 'friend') {
-          console.log('Refreshing friends list');
-          socket.emit('get-friends');
-        }
-      }, 30000);
+  const handleAddFriend = async (partnerInfo) => {
+    if (!partnerInfo.partnerId || !partnerInfo.partnerUsername) {
+      console.log('Invalid partner info for adding friend');
+      return;
+    }
+
+    // Don't allow adding bot as friend
+    if (partnerInfo.partnerUsername === 'bot' || partnerInfo.partnerId.toString().startsWith('bot_')) {
+      setToastMessage('Cannot add bot as friend!');
+      setShowToast(true);
+      return;
     }
     
-    return () => {
-      if (refreshInterval) {
-        clearInterval(refreshInterval);
-      }
-    };
-  }, [socket, friendCount, chatMode]);
+    // Don't allow if already added this session
+    if (addedFriends.has(partnerInfo.partnerId)) {
+      setToastMessage('Already added as friend!');
+      setShowToast(true);
+      return;
+    }
+    
+    try {
+      console.log('🤝 Adding friend via service:', partnerInfo);
+      
+      await friendsService.addFriendById(
+        user.id, 
+        partnerInfo.partnerId, 
+        partnerInfo.partnerUsername
+      );
+      
+      // Mark as added in current session
+      setAddedFriends(prev => new Set([...prev, partnerInfo.partnerId]));
+      
+      setToastMessage(`Added ${partnerInfo.partnerUsername} as friend! 🎉`);
+      setShowToast(true);
+      
+      // Reload friends list
+      await loadFriends();
+    } catch (error) {
+      console.error('Error adding friend:', error);
+      setToastMessage(error.message || 'Failed to add friend');
+      setShowToast(true);
+    }
+  };
+
+  // Handle new message from ChatService
+  const handleNewMessage = (message) => {
+    console.log('📨 New message received:', message);
+    setChatMessages(prev => [...prev, message]);
+  };
+
+  // Handle match found from MatchingService
+  const handleMatchFound = (data) => {
+    console.log('Match found!', data);
+    setPartner(data.partnerId);
+    setPartnerUsername(data.partnerUsername);
+    setCurrentMatchId(data.matchId); // Set match ID for ChatService
+    
+    // Store partner avatar if provided
+    if (data.partner) {
+      avatarCache.current.set(data.partnerUsername, getAvatarUrl(data.partnerUsername));
+    }
+    
+    // Clear previous chat messages
+    setChatMessages([]);
+    
+    setInterests(''); // Clear interests after match
+    setSelectedDuration('30s'); // Reset to default
+    setSearchPhase('interests'); // Reset phase for next search
+    setState('CHATTING');
+  };
+  
+  const handlePhaseChanged = (data) => {
+    console.log('🔄 Search phase changed:', data.phase);
+    setSearchPhase(data.phase === 'gender-only' ? 'gender-only' : 'interests');
+  };
+
+  // Note: Message handling is now done via MatchingService and Supabase Realtime
+  // Friend system socket listeners are commented out for now - will be migrated later
+  // useEffect(() => {
+  //   // Friend system socket listeners would go here
+  //   // Will be migrated to Supabase in a future phase
+  // }, []);
+  
+  // Note: Typing indicators will be implemented with Supabase Realtime in future
+  // useEffect(() => {
+  //   // Typing indicators via Supabase channels
+  // }, []);
+
+  // Note: Friends list refresh will be handled by Supabase Realtime in future
+  // useEffect(() => {
+  //   // Friend list refresh via Supabase
+  // }, [friendCount, chatMode]);
   
 
   const handleBlockUser = () => {
@@ -947,10 +770,10 @@ function MainPage() {
     );
     
     if (confirmBlock) {
-      // Use partner's socket ID from the match
-      socket.emit('block-user', { 
-        blockedUserId: _partner // _partner contains partner's socket ID
-      });
+      // Note: Block functionality will be implemented with Supabase in future
+      console.log('Block user functionality not yet migrated to Supabase');
+      setToastMessage('Block feature coming soon!');
+      setShowToast(true);
     }
   };
 
@@ -960,8 +783,8 @@ function MainPage() {
     e.preventDefault();
   };
   
-  const handlePreferenceSelect = (preference) => {
-    // console.log('Selected preference:', preference); // Dev log - cleaned up
+  const handlePreferenceSelect = async (preference) => {
+    console.log('Selected preference:', preference);
     setPreferences(preference);
     setState('SEARCHING');
     
@@ -972,13 +795,22 @@ function MainPage() {
       setSearchPhase('gender-only');
     }
     
-    // Start real matching - use test data when user not available
-    findMatch({
-      userGender: user?.gender || 'male',
-      lookingFor: preference,
-      interests: interests.trim(), // Include interests in match request
-      searchDuration: selectedDuration // ADD this line
-    });
+    // Start matching with MatchingService
+    if (matchingService) {
+      try {
+        await matchingService.findMatch({
+          userGender: user?.gender || 'male',
+          lookingFor: preference,
+          interests: interests.trim(),
+          searchDuration: selectedDuration
+        });
+      } catch (error) {
+        console.error('Error starting match:', error);
+        setToastMessage('Error starting search. Please try again.');
+        setShowToast(true);
+        setState('PREFERENCES');
+      }
+    }
   };
 
   // Action Menu Component (shows on long press)
@@ -1028,32 +860,18 @@ function MainPage() {
   };
 
   // Helper function to show toast notifications
-  // Handler for starting friend chat
+  // Handler for starting friend chat (placeholder for future implementation)
   const startFriendChat = (friendId) => {
     console.log('Starting friend chat with:', friendId);
     
-    // Exit random chat if active
-    if (state === 'CHATTING' && chatMode === 'random') {
-      socket.emit('skip');
-    }
-    
-    // Switch to friend chat mode
-    setChatMode('friend');
-    setActiveFriendId(friendId);
+    // Note: Friend chat functionality will be implemented in a future phase
+    // For now, show a message that it's coming soon
+    setToastMessage('Friend chat coming soon! 🚀');
+    setShowToast(true);
     setShowFriendsSheet(false);
-    setState('CHATTING'); // Show chat UI
-    setChatMessages([]); // Clear random chat messages
-    
-    // Load friend messages
-    socket.emit('get-friend-messages', { friendId });
-    
-    // Mark messages as read after a short delay
-    setTimeout(() => {
-      socket.emit('mark-messages-read', { friendId });
-    }, 1000);
   };
 
-  // Handler for exiting friend chat
+  // Handler for exiting friend chat (placeholder for future implementation)
   const exitFriendChat = () => {
     console.log('Exiting friend chat');
     
@@ -1062,8 +880,6 @@ function MainPage() {
     setActiveFriendInfo(null);
     setChatMessages([]);
     setState('PREFERENCES');
-    
-    socket.emit('exit-friend-chat');
   };
 
   const showToastMessage = (message, type = 'tangerine') => {
@@ -1360,15 +1176,9 @@ function MainPage() {
       {/* Add header at the top */}
       <MainHeader />
       
-      {/* Connection status indicator */}
+      {/* Connection status indicator - Always green for Supabase */}
       <div className="fixed top-4 right-4 z-50">
-        <div className={`w-3 h-3 rounded-full ${
-          isConnected 
-            ? 'bg-green-500' 
-            : isReconnecting 
-              ? 'bg-yellow-500 animate-pulse'
-              : 'bg-red-500'
-        }`}></div>
+        <div className="w-3 h-3 rounded-full bg-green-500"></div>
       </div>
       
       {/* Toast notification */}
@@ -1396,8 +1206,10 @@ function MainPage() {
       )}
       {state === 'SEARCHING' && (
         <SearchingView 
-          onCancel={() => {
-            cancelSearch(); // Notify backend
+          onCancel={async () => {
+            if (matchingService) {
+              await matchingService.cancelSearch();
+            }
             setState('PREFERENCES');
             setPreferences(null);
             setSearchPhase('interests'); // Reset phase
@@ -1420,52 +1232,78 @@ function MainPage() {
           _partner={_partner}
           chatMode={chatMode}
           activeFriendInfo={activeFriendInfo}
-          socket={socket}
           activeFriendId={activeFriendId}
           showToastMessage={showToastMessage}
-          onSkip={chatMode === 'friend' ? exitFriendChat : () => {
-            sendSkip();
+          chatService={chatService}
+          onSkip={chatMode === 'friend' ? exitFriendChat : async () => {
+            // Clean up ChatService
+            if (chatService) {
+              await chatService.endChat();
+              setChatService(null);
+            }
+            
+            // Clean up MatchingService
+            if (matchingService) {
+              await matchingService.skipMatch();
+            }
+            
+            // Reset state
             setState('PREFERENCES');
             setPreferences(null);
             setPartner(null);
-            setPartnerUsername(null); // Clear partner username
+            setPartnerUsername(null);
+            setCurrentMatchId(null);
             setChatMessages([]);
-            setSearchPhase('interests'); // Reset phase
+            setSearchPhase('interests');
           }}
-          onSendMessage={(message) => {
+          onSendMessage={async (message) => {
             const messageText = message.text.trim();
             if (!messageText) return;
             
             if (chatMode === 'friend') {
-              // Friend chat message
-              socket.emit('friend-message', {
-                friendId: activeFriendId,
-                message: messageText
-              });
+              // Friend chat message - still using Socket.io for now
+              // socket.emit('friend-message', {
+              //   friendId: activeFriendId,
+              //   message: messageText
+              // });
+              console.log('Friend chat not yet migrated to Supabase');
             } else {
-              // Random chat message
+              // Random chat message via ChatService
               const outgoingMessage = {
                 text: messageText,
                 timestamp: Date.now(),
-                from: user?.username,
+                sender: 'user',
                 isMine: true
               };
               
               // Optimistically add to UI
               setChatMessages(prev => [...prev, outgoingMessage]);
               
-              // Check if we can send directly or need to queue
-              if (canSendDirectly()) {
-                socketSendMessage({ text: messageText });
-              } else {
-                // Queue the message
-                queueMessage({ text: messageText });
-                
-                // Show offline toast
-                if (!navigator.onLine) {
-                  setToastMessage('You\'re offline - messages will send when reconnected');
+              // Send via ChatService
+              if (chatService) {
+                try {
+                  await chatService.sendMessage(messageText);
+                  console.log('✅ Message sent via ChatService');
+                } catch (error) {
+                  console.error('Error sending message via ChatService:', error);
+                  setToastMessage('Failed to send message. Please try again.');
                   setShowToast(true);
-                  setTimeout(() => setShowToast(false), 3000);
+                  
+                  // Remove optimistic message on failure
+                  setChatMessages(prev => prev.filter(msg => msg !== outgoingMessage));
+                }
+              } else {
+                console.warn('ChatService not available, falling back to MatchingService');
+                // Fallback to MatchingService if ChatService not available
+                if (matchingService) {
+                  try {
+                    await matchingService.sendMessage(messageText);
+                  } catch (error) {
+                    console.error('Error sending message via MatchingService:', error);
+                    setToastMessage('Failed to send message. Please try again.');
+                    setShowToast(true);
+                    setChatMessages(prev => prev.filter(msg => msg !== outgoingMessage));
+                  }
                 }
               }
             }
@@ -1484,8 +1322,11 @@ function MainPage() {
         isOpen={showFriendsSheet}
         onClose={() => setShowFriendsSheet(false)}
         friends={friends}
-        socket={socket}
+        friendsService={friendsService}
+        currentUserId={user?.id}
         onStartChat={startFriendChat}
+        onFriendAdded={loadFriends}
+        showToastMessage={showToastMessage}
       />
     </div>
   );
