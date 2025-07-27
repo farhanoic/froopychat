@@ -6,7 +6,20 @@ const io = require('socket.io')(server, {
   cors: {
     origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176', 'http://localhost:5177', 'http://localhost:5178', 'https://froopychat.vercel.app'],
     credentials: true
-  }
+  },
+  // Production websocket configuration for Render
+  transports: ['websocket', 'polling'],
+  allowEIO3: true,
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  upgradeTimeout: 30000,
+  maxHttpBufferSize: 1e6,
+  // Enable sticky sessions for production
+  cookie: process.env.NODE_ENV === 'production' ? {
+    name: 'froopy-io',
+    httpOnly: true,
+    sameSite: 'lax'
+  } : false
 });
 const cors = require('cors');
 const { Pool } = require('pg');
@@ -2883,7 +2896,23 @@ app.post('/test-bot-cleanup', (req, res) => {
   }
 });
 
-server.listen(3000, () => {
-  console.log('Froopy backend vibing on 3000 🚀');
+// Production error handling and monitoring
+io.engine.on('connection_error', (err) => {
+  console.error('Socket.io connection error:', err.req);
+  console.error('Error code:', err.code);
+  console.error('Error message:', err.message);
+  console.error('Context:', err.context);
+});
+
+// Monitor connection health
+setInterval(() => {
+  const connectedClients = io.engine.clientsCount;
+  console.log(`📊 Socket.io health check: ${connectedClients} connected clients`);
+}, 60000); // Log every minute
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Froopy backend vibing on port ${PORT}`);
+  console.log('📡 Socket.io server ready for connections');
   runMigrations(); // Run database migrations on startup
 });
