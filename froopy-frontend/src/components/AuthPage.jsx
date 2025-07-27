@@ -172,47 +172,53 @@ function AuthPage() {
               <p className="text-white text-lg">{email}</p>
             </div>
             
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleAuth()}
-              className="w-full px-4 py-3 bg-white/10 text-white placeholder-white/50 rounded-full focus:outline-none focus:ring-2 focus:ring-royal-blue"
-            />
-            
-            {!isExistingUser && (
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setGender('male')}
-                  className={`flex-1 py-3 rounded-full text-sm font-medium transition-colors ${
-                    gender === 'male' 
-                      ? 'bg-royal-blue text-white' 
-                      : 'bg-white/10 text-white/70 hover:bg-white/20'
-                  }`}
-                >
-                  👨 Male
-                </button>
-                <button
-                  onClick={() => setGender('female')}
-                  className={`flex-1 py-3 rounded-full text-sm font-medium transition-colors ${
-                    gender === 'female' 
-                      ? 'bg-royal-blue text-white' 
-                      : 'bg-white/10 text-white/70 hover:bg-white/20'
-                  }`}
-                >
-                  👩 Female
-                </button>
-              </div>
-            )}
-            
-            <button
-              onClick={handleAuth}
-              disabled={isProcessing}
-              className="w-full py-3 bg-royal-blue text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
-            >
-              {isProcessing ? 'Processing...' : (isExistingUser ? 'Login' : 'Sign Up')}
-            </button>
+            <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} className="space-y-4">
+              <input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 bg-white/10 text-white placeholder-white/50 rounded-full focus:outline-none focus:ring-2 focus:ring-royal-blue"
+                required
+                minLength={6}
+                autoComplete={isExistingUser ? "current-password" : "new-password"}
+              />
+              
+              {!isExistingUser && (
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setGender('male')}
+                    className={`flex-1 py-3 rounded-full text-sm font-medium transition-colors ${
+                      gender === 'male' 
+                        ? 'bg-royal-blue text-white' 
+                        : 'bg-white/10 text-white/70 hover:bg-white/20'
+                    }`}
+                  >
+                    👨 Male
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGender('female')}
+                    className={`flex-1 py-3 rounded-full text-sm font-medium transition-colors ${
+                      gender === 'female' 
+                        ? 'bg-royal-blue text-white' 
+                        : 'bg-white/10 text-white/70 hover:bg-white/20'
+                    }`}
+                  >
+                    👩 Female
+                  </button>
+                </div>
+              )}
+              
+              <button
+                type="submit"
+                disabled={isProcessing}
+                className="w-full py-3 bg-royal-blue text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
+              >
+                {isProcessing ? 'Processing...' : (isExistingUser ? 'Login' : 'Sign Up')}
+              </button>
+            </form>
             
             <button
               onClick={() => setStep('email')}

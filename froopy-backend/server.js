@@ -137,7 +137,31 @@ app.post('/register', async (req, res) => {
     
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ error: 'Registration failed' });
+    console.error('Registration error details:', {
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+      constraint: error.constraint
+    });
+    
+    // Handle specific database errors
+    if (error.code === '23505') { // Unique violation
+      if (error.constraint === 'users_email_key') {
+        return res.status(400).json({ error: 'Email already exists' });
+      } else if (error.constraint === 'users_username_key') {
+        return res.status(400).json({ error: 'Username already exists' });
+      }
+    }
+    
+    // Handle database connection errors
+    if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+      return res.status(503).json({ error: 'Database connection failed' });
+    }
+    
+    res.status(500).json({ 
+      error: 'Registration failed',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
