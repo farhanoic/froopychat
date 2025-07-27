@@ -10,8 +10,8 @@ const io = require('socket.io')(server, {
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
     exposedHeaders: ['Access-Control-Allow-Origin']
   },
-  // Production websocket configuration for Render - polling first for better reliability
-  transports: ['polling', 'websocket'],
+  // Production websocket configuration for Render - polling only for maximum stability
+  transports: ['polling'],
   allowEIO3: true,
   pingTimeout: 30000,     // Reduced from 60s for faster timeout detection
   pingInterval: 15000,    // Reduced from 25s for more frequent health checks

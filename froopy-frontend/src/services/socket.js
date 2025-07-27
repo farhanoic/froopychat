@@ -11,8 +11,8 @@ export const getOnlineStatus = () => isOnline;
 
 // Create socket instance with environment-based URL and aggressive reconnection options
 const socket = io(import.meta.env.VITE_WS_URL || 'http://localhost:3000', {
-  // Match backend transport order - polling first for better reliability
-  transports: ['polling', 'websocket'],
+  // Match backend transport order - polling only for maximum stability
+  transports: ['polling'],
   reconnection: true,
   reconnectionAttempts: Infinity,
   reconnectionDelay: 500,        // Faster initial retry
