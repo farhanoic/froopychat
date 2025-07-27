@@ -4,15 +4,30 @@ const app = express();
 const server = require('http').createServer(app);
 const io = require('socket.io')(server, {
   cors: {
-    origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176', 'http://localhost:5177', 'http://localhost:5178', 'https://froopychat.vercel.app'],
-    credentials: true
+    origin: [
+      'http://localhost:5173', 
+      'http://localhost:5174', 
+      'http://localhost:5175', 
+      'http://localhost:5176', 
+      'http://localhost:5177', 
+      'http://localhost:5178', 
+      'https://froopychat.vercel.app',
+      // Add wildcard support for all Vercel preview deployments
+      /https:\/\/.*\.vercel\.app$/,
+      // Add your custom domain if you have one
+      'https://froopy.chat'
+    ],
+    credentials: true,
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'Authorization']
   },
-  // Production websocket configuration for Render
-  transports: ['websocket', 'polling'],
+  // Production websocket configuration for Render - polling first for better reliability
+  transports: ['polling', 'websocket'],
   allowEIO3: true,
-  pingTimeout: 60000,
-  pingInterval: 25000,
-  upgradeTimeout: 30000,
+  pingTimeout: 30000,     // Reduced from 60s for faster timeout detection
+  pingInterval: 15000,    // Reduced from 25s for more frequent health checks
+  upgradeTimeout: 20000,  // Reduced from 30s for faster upgrade timeout
+  connectTimeout: 20000,  // Added connection timeout
   maxHttpBufferSize: 1e6,
   // Enable sticky sessions for production
   cookie: process.env.NODE_ENV === 'production' ? {
@@ -54,8 +69,23 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176', 'http://localhost:5177', 'http://localhost:5178', 'https://froopychat.vercel.app'],
-  credentials: true
+  origin: [
+    'http://localhost:5173', 
+    'http://localhost:5174', 
+    'http://localhost:5175', 
+    'http://localhost:5176', 
+    'http://localhost:5177', 
+    'http://localhost:5178', 
+    'https://froopychat.vercel.app',
+    // Add wildcard support for all Vercel preview deployments
+    /https:\/\/.*\.vercel\.app$/,
+    // Add your custom domain if you have one
+    'https://froopy.chat'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Access-Control-Allow-Origin']
 }));
 
 app.use(express.json());

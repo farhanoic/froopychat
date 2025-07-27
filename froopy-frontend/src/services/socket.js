@@ -9,13 +9,23 @@ let queueFlushInProgress = false;
 export const getMessageQueue = () => [...messageQueue];
 export const getOnlineStatus = () => isOnline;
 
-// Create socket instance with environment-based URL and reconnection options
+// Create socket instance with environment-based URL and aggressive reconnection options
 const socket = io(import.meta.env.VITE_WS_URL || 'http://localhost:3000', {
+  // Match backend transport order - polling first for better reliability
+  transports: ['polling', 'websocket'],
   reconnection: true,
   reconnectionAttempts: Infinity,
-  reconnectionDelay: 1000,
-  reconnectionDelayMax: 5000,
-  timeout: 20000
+  reconnectionDelay: 500,        // Faster initial retry
+  reconnectionDelayMax: 2000,    // Shorter max delay for faster recovery
+  timeout: 10000,               // Shorter timeout for faster failure detection
+  // Add connection timeout for faster failure detection
+  connectTimeout: 20000,        // Reduced from 45s
+  // Add upgrade timeout 
+  upgradeTimeout: 10000,        // Reduced from 30s
+  // Force new connection on reconnect
+  forceNew: false,
+  // Additional resilience options
+  randomizationFactor: 0.2
 });
 
 // Online/offline detection
@@ -59,11 +69,44 @@ socket.on('connect', () => {
   if (messageQueue.length > 0) {
     flushMessageQueue();
   }
+  
+  // Retry match request if we were searching when disconnected
+  setTimeout(() => {
+    retryMatch();
+  }, 1000); // Small delay to ensure authentication completes
 });
 
-socket.on('disconnect', () => {
-  console.log('Socket disconnected');
+socket.on('disconnect', (reason) => {
+  console.log('Socket disconnected. Reason:', reason);
+  // Log the disconnect reason for debugging
+  if (reason === 'io server disconnect') {
+    console.warn('Server forcibly disconnected. Manual reconnection needed.');
+  } else if (reason === 'transport close') {
+    console.warn('Connection lost. Auto-reconnecting...');
+  }
   // Don't set isOnline = false here, as we might still have network
+});
+
+// Add connection error debugging
+socket.on('connect_error', (error) => {
+  console.error('Socket connection error:', {
+    message: error.message,
+    description: error.description,
+    context: error.context,
+    type: error.type
+  });
+});
+
+socket.on('reconnect_attempt', (attemptNumber) => {
+  console.log(`Socket reconnection attempt #${attemptNumber}`);
+});
+
+socket.on('reconnect_failed', () => {
+  console.error('Socket reconnection failed after all attempts');
+});
+
+socket.on('reconnect', (attemptNumber) => {
+  console.log(`Socket reconnected successfully after ${attemptNumber} attempts`);
 });
 
 // Authentication event handlers
@@ -75,14 +118,37 @@ socket.on('auth-error', (error) => {
   console.error('Socket authentication failed:', error);
 });
 
-// Match-related functions
+// Match-related functions with automatic retry
+let lastMatchPreferences = null;
+let matchRetryCount = 0;
+const MAX_MATCH_RETRIES = 3;
+
 export const findMatch = (preferences) => {
   console.log('Emitting find-match with:', preferences);
-  socket.emit('find-match', preferences);
+  lastMatchPreferences = preferences;
+  matchRetryCount = 0;
+  
+  if (socket.connected) {
+    socket.emit('find-match', preferences);
+  } else {
+    console.log('Socket not connected, will retry when connected');
+    // Connection will trigger retry in the connect handler
+  }
+};
+
+// Retry match request after reconnection
+const retryMatch = () => {
+  if (lastMatchPreferences && matchRetryCount < MAX_MATCH_RETRIES) {
+    matchRetryCount++;
+    console.log(`Retrying match request (attempt ${matchRetryCount})`);
+    socket.emit('find-match', lastMatchPreferences);
+  }
 };
 
 export const cancelSearch = () => {
   console.log('Cancelling search');
+  lastMatchPreferences = null; // Clear retry preferences
+  matchRetryCount = 0;
   socket.emit('cancel-search');
 };
 
