@@ -475,7 +475,7 @@ function MainPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [appTheme, setAppTheme] = useState('dark'); // Default dark theme
   const [deferredPrompt, setDeferredPrompt] = useState(null);
-  const { user } = useUser();
+  const { user, loading } = useUser();
   const navigate = useNavigate();
   
   // Avatar generation using DiceBear API
@@ -523,14 +523,14 @@ function MainPage() {
       : "bg-gray-800 text-gray-400 hover:bg-gray-700");
   };
 
-  // Auth validation
+  // Auth validation - wait for loading to complete
   useEffect(() => {
-    if (!user || !user.email || !user.gender) {
+    if (!loading && (!user || !user.email || !user.gender)) {
       console.log('No authenticated user found, redirecting to auth');
       navigate('/auth');
       return;
     }
-  }, [user, navigate]);
+  }, [user, loading, navigate]);
 
   // Initialize MatchingService when user is available
   useEffect(() => {
@@ -1160,6 +1160,19 @@ function MainPage() {
     );
   };
   
+  // Show loading state while authentication is being resolved
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-dark-navy text-white">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
+          <p>Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If not loading and no user, the useEffect will handle redirect
   if (!user || !user.email || !user.gender) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-dark-navy text-white">
