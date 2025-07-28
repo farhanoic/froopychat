@@ -4,6 +4,7 @@ import { useUser } from '../contexts/UserContextSupabase';
 import { MatchingService } from '../services/matching';
 import { ChatService } from '../services/chat';
 import { friendsService } from '../services/friends';
+import { supabase } from '../services/supabase';
 import FriendsSheet from './FriendsSheet';
 
 // View components
@@ -541,6 +542,9 @@ function MainPage() {
         handlePhaseChanged
       );
       setMatchingService(service);
+      
+      // Check for existing active match on load
+      checkForActiveMatch(service);
 
       // Cleanup on unmount
       return () => {
@@ -718,6 +722,97 @@ function MainPage() {
     setChatMessages(prev => [...prev, message]);
   };
 
+  // Check for existing active match on page load
+  const checkForActiveMatch = async (matchingServiceInstance) => {
+    try {
+      console.log('🔍 Checking for existing active match...');
+      const existingMatch = await matchingServiceInstance.checkForExistingMatches();
+      
+      if (existingMatch) {
+        console.log('✅ Found existing active match, restoring chat state:', existingMatch);
+        
+        // Determine partner ID
+        const partnerId = existingMatch.user1_id === user.id ? existingMatch.user2_id : existingMatch.user1_id;
+        
+        // For bot matches, use bot_id
+        const actualPartnerId = existingMatch.is_bot ? existingMatch.bot_id : partnerId;
+        
+        // For non-bot matches, fetch partner info
+        let partnerUsername = null;
+        let partnerInfo = null;
+        
+        if (existingMatch.is_bot) {
+          partnerUsername = existingMatch.bot_profile?.username || 'Bot';
+          partnerInfo = existingMatch.bot_profile;
+        } else if (partnerId) {
+          // Fetch partner user info from Supabase
+          const { data: partnerData, error: partnerError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', partnerId)
+            .single();
+          
+          if (!partnerError && partnerData) {
+            partnerUsername = partnerData.username;
+            partnerInfo = partnerData;
+          } else {
+            console.error('Error fetching partner info:', partnerError);
+            // Try to get from localStorage as fallback
+            const storedMatch = localStorage.getItem('activeMatch');
+            if (storedMatch) {
+              const parsed = JSON.parse(storedMatch);
+              partnerUsername = parsed.partnerUsername || 'Anonymous';
+            }
+          }
+        }
+        
+        // Restore the match state
+        handleMatchFound({
+          matchId: existingMatch.id,
+          partnerId: actualPartnerId,
+          partnerUsername: partnerUsername,
+          partner: partnerInfo
+        });
+        
+        // Don't load messages here - ChatService will handle it
+        // The handleMatchFound will trigger ChatService initialization
+        // which loads messages automatically
+      } else {
+        console.log('ℹ️ No active match found');
+      }
+    } catch (error) {
+      console.error('Error checking for active match:', error);
+    }
+  };
+  
+  // Load existing messages for a match
+  const loadExistingMessages = async (matchId) => {
+    try {
+      const { data: messages, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('match_id', matchId)
+        .order('created_at', { ascending: true });
+      
+      if (error) throw error;
+      
+      if (messages && messages.length > 0) {
+        // Convert messages to the format expected by the chat view
+        const formattedMessages = messages.map(msg => ({
+          text: msg.content,
+          timestamp: new Date(msg.created_at).getTime(),
+          sender: msg.sender_id === user.id ? 'user' : 'partner',
+          isMine: msg.sender_id === user.id
+        }));
+        
+        setChatMessages(formattedMessages);
+        console.log(`✅ Loaded ${messages.length} existing messages`);
+      }
+    } catch (error) {
+      console.error('Error loading existing messages:', error);
+    }
+  };
+
   // Handle match found from MatchingService
   const handleMatchFound = (data) => {
     console.log('Match found!', data);
@@ -737,6 +832,16 @@ function MainPage() {
     setSelectedDuration('30s'); // Reset to default
     setSearchPhase('interests'); // Reset phase for next search
     setState('CHATTING');
+    
+    // Store match info in localStorage for persistence
+    if (data.matchId) {
+      localStorage.setItem('activeMatch', JSON.stringify({
+        matchId: data.matchId,
+        partnerId: data.partnerId,
+        partnerUsername: data.partnerUsername,
+        timestamp: Date.now()
+      }));
+    }
   };
   
   const handlePhaseChanged = (data) => {
@@ -1259,6 +1364,10 @@ function MainPage() {
             if (matchingService) {
               await matchingService.skipMatch();
             }
+            
+            // Clear stored active match from localStorage
+            localStorage.removeItem('activeMatch');
+            console.log('🧹 Cleared activeMatch from localStorage');
             
             // Reset state
             setState('PREFERENCES');

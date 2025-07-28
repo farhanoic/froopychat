@@ -25,7 +25,7 @@ const generateUsername = () => {
 };
 
 function AuthPageSupabase() {
-  const [step, setStep] = useState('email'); // 'email' or 'auth'
+  const [step, setStep] = useState('email'); // 'email', 'password', or 'signup'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [gender, setGender] = useState('');
@@ -34,7 +34,7 @@ function AuthPageSupabase() {
   const { setUser } = useUser();  
   const navigate = useNavigate();
 
-  // Handle email submission and check if user exists
+  // Handle email submission and auto-detect user type
   const handleEmailContinue = async () => {
     if (isProcessing) return;
     
@@ -45,48 +45,11 @@ function AuthPageSupabase() {
     
     setIsProcessing(true);
     
-    try {
-      // Check if user exists by trying to get current session first
-      const { data: session } = await supabase.auth.getSession();
-      
-      if (session?.user?.email === email) {
-        // User is already logged in with this email
-        setIsExistingUser(true);
-      } else {
-        // Try to sign in silently to check if user exists
-        // This is a common pattern to check user existence
-        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password: 'dummy' // We don't know the password yet
-        });
-        
-        if (signInError) {
-          if (signInError.message?.includes('Invalid login credentials')) {
-            // Could be wrong password OR user doesn't exist
-            // Let's assume new user for simplicity
-            setIsExistingUser(false);
-          } else {
-            // User exists but password is wrong
-            setIsExistingUser(true);
-          }
-        } else {
-          // Successful sign in means user exists
-          setIsExistingUser(true);
-          // Sign out immediately since this was just a check
-          await supabase.auth.signOut();
-        }
-      }
-      
-      setStep('auth');
-      console.log(`Email ${email} ${isExistingUser ? 'exists' : 'is new'} - showing ${isExistingUser ? 'login' : 'signup'} flow`);
-    } catch (error) {
-      console.error('Email check error:', error);
-      // Assume new user on error for better UX
-      setIsExistingUser(false);
-      setStep('auth');
-    } finally {
-      setIsProcessing(false);
-    }
+    // Simplest solution: Default to signup flow, let error handling switch to login
+    console.log('Starting with signup flow - will auto-switch to login if user exists');
+    setIsExistingUser(false);
+    setStep('signup');
+    setIsProcessing(false);
   };
 
   // Handle authentication (login or register)
@@ -100,7 +63,7 @@ function AuthPageSupabase() {
     }
     
     // For new users, validate gender selection
-    if (!isExistingUser && !gender) {
+    if (step === 'signup' && !gender) {
       alert('Please select your gender');
       return;
     }
@@ -108,8 +71,8 @@ function AuthPageSupabase() {
     setIsProcessing(true);
     
     try {
-      if (isExistingUser) {
-        // Sign in existing user
+      if (step === 'password') {
+        // Login existing user
         const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password,
@@ -143,7 +106,7 @@ function AuthPageSupabase() {
         navigate('/');
         
       } else {
-        // Sign up new user
+        // Sign up new user (step === 'signup')
         const { data: authData, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
@@ -157,7 +120,7 @@ function AuthPageSupabase() {
           throw new Error('User creation failed');
         }
 
-        // Create user profile
+        // Create user profile immediately
         const username = generateUsername();
         const { error: profileError } = await supabase
           .from('users')
@@ -190,12 +153,16 @@ function AuthPageSupabase() {
       
       if (error.message?.includes('Invalid login credentials')) {
         errorMessage = 'Invalid email or password. Please check your credentials.';
-      } else if (error.message?.includes('Email not confirmed')) {
-        errorMessage = 'Please check your email and confirm your account before signing in.';
-      } else if (error.message?.includes('User already registered')) {
-        errorMessage = 'This email is already registered. Please sign in instead.';
+      } else if (error.message?.includes('User already registered') || error.message?.includes('already been registered')) {
+        console.log('User already exists - switching to login mode');
         setIsExistingUser(true);
+        setStep('password');
+        errorMessage = 'This email is already registered. Please enter your password to sign in.';
         return; // Don't set processing to false, let user try again
+      } else if (error.message?.includes('Too Many Requests') || error.status === 429) {
+        errorMessage = 'Too many signup attempts. Please wait a moment and try again.';
+      } else if (error.message?.includes('Failed to create user profile')) {
+        errorMessage = 'Account created but profile setup failed. Please contact support.';
       }
       
       alert(errorMessage);
@@ -209,7 +176,9 @@ function AuthPageSupabase() {
       <div className="w-full max-w-sm">
         <h1 className="text-white text-3xl text-center mb-8">Froopy</h1>
         <p className="text-white/70 text-center mb-4 text-sm">
-          {step === 'email' ? 'Enter your email to continue' : 'Powered by Supabase 🚀'}
+          {step === 'email' ? 'Enter your email to continue' : 
+           step === 'password' ? 'Welcome back!' :
+           'Create your account'} {step !== 'email' && '🚀'}
         </p>
         
         {step === 'email' && (
@@ -232,12 +201,9 @@ function AuthPageSupabase() {
           </div>
         )}
         
-        {step === 'auth' && (
+        {(step === 'password' || step === 'signup') && (
           <div className="space-y-4">
             <div className="text-center mb-4">
-              <p className="text-white/70 text-sm">
-                {isExistingUser ? 'Welcome back!' : 'Create your account'}
-              </p>
               <p className="text-white text-lg">{email}</p>
             </div>
             
@@ -250,10 +216,10 @@ function AuthPageSupabase() {
                 className="w-full px-4 py-3 bg-white/10 text-white placeholder-white/50 rounded-full focus:outline-none focus:ring-2 focus:ring-royal-blue"
                 required
                 minLength={6}
-                autoComplete={isExistingUser ? "current-password" : "new-password"}
+                autoComplete={step === 'password' ? "current-password" : "new-password"}
               />
               
-              {!isExistingUser && (
+              {step === 'signup' && (
                 <div className="flex gap-3">
                   <button
                     type="button"
@@ -285,7 +251,7 @@ function AuthPageSupabase() {
                 disabled={isProcessing}
                 className="w-full py-3 bg-royal-blue text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
               >
-                {isProcessing ? 'Processing...' : (isExistingUser ? 'Login' : 'Sign Up')}
+                {isProcessing ? 'Processing...' : (step === 'password' ? 'Login' : 'Sign Up')}
               </button>
             </form>
             

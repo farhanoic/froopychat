@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Supabase Realtime Messages</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        .log {
+            background: #f0f0f0;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+    </style>
+</head>
+<body>
+    <h1>Supabase Realtime Messages Test</h1>
+    
+    <div class="section">
+        <h2>1. Check Realtime Publication</h2>
+        <button onclick="checkPublication()">Check Publication</button>
+        <div id="publication-result"></div>
+    </div>
+
+    <div class="section">
+        <h2>2. Test Message Insert & Realtime</h2>
+        <input type="text" id="match-id" placeholder="Enter match ID" style="width: 300px; padding: 5px;">
+        <br><br>
+        <button onclick="subscribeToMessages()">Subscribe to Messages</button>
+        <button onclick="insertTestMessage()">Insert Test Message</button>
+        <div id="subscription-status"></div>
+        <div id="messages-log"></div>
+    </div>
+
+    <script>
+        // Initialize Supabase client
+        const supabaseUrl = 'https://hrcfgysxscsfcqsknkcn.supabase.co';
+        const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhyY2ZneXN4c2NzZmNxc2tua2NuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzczOTA1MDcsImV4cCI6MjA1Mjk2NjUwN30.IomhJ3bQGtcLf1lFOj0p8FivHqZXdj7SJAkswY3LF_I';
+        
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
+        
+        let channel = null;
+        
+        function log(elementId, message, type = '') {
+            const element = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log ${type}`;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            element.appendChild(logEntry);
+        }
+
+        async function checkPublication() {
+            try {
+                // This query checks if messages table is in the publication
+                const { data, error } = await supabase
+                    .rpc('get_publication_tables', { pub_name: 'supabase_realtime' });
+                
+                if (error) {
+                    // If the function doesn't exist, try a direct query
+                    log('publication-result', 'Cannot check publication directly. Attempting to test realtime...', 'error');
+                    
+                    // Try to subscribe as a test
+                    const testChannel = supabase
+                        .channel('test-publication')
+                        .on('postgres_changes', {
+                            event: '*',
+                            schema: 'public',
+                            table: 'messages'
+                        }, (payload) => {
+                            log('publication-result', 'Realtime is working! Received event.', 'success');
+                        })
+                        .subscribe((status) => {
+                            if (status === 'SUBSCRIBED') {
+                                log('publication-result', 'Successfully subscribed to messages table. Realtime is enabled!', 'success');
+                                testChannel.unsubscribe();
+                            } else {
+                                log('publication-result', `Subscription status: ${status}`, 'error');
+                            }
+                        });
+                } else {
+                    log('publication-result', `Tables in supabase_realtime: ${JSON.stringify(data, null, 2)}`, 'success');
+                }
+            } catch (err) {
+                log('publication-result', `Error: ${err.message}`, 'error');
+            }
+        }
+
+        async function subscribeToMessages() {
+            const matchId = document.getElementById('match-id').value;
+            if (!matchId) {
+                log('subscription-status', 'Please enter a match ID', 'error');
+                return;
+            }
+
+            // Unsubscribe from previous channel if exists
+            if (channel) {
+                await channel.unsubscribe();
+            }
+
+            log('subscription-status', `Subscribing to match: ${matchId}...`);
+
+            channel = supabase
+                .channel(`chat:${matchId}`)
+                .on('postgres_changes', {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'messages',
+                    filter: `match_id=eq.${matchId}`
+                }, (payload) => {
+                    log('messages-log', `New message received: ${JSON.stringify(payload.new, null, 2)}`, 'success');
+                })
+                .subscribe((status) => {
+                    log('subscription-status', `Subscription status: ${status}`, status === 'SUBSCRIBED' ? 'success' : 'error');
+                });
+        }
+
+        async function insertTestMessage() {
+            const matchId = document.getElementById('match-id').value;
+            if (!matchId) {
+                log('messages-log', 'Please enter a match ID', 'error');
+                return;
+            }
+
+            // Get current user
+            const { data: { user }, error: userError } = await supabase.auth.getUser();
+            if (userError || !user) {
+                log('messages-log', 'User not authenticated. Please login first.', 'error');
+                return;
+            }
+
+            const testMessage = {
+                match_id: matchId,
+                sender_id: user.id,
+                content: `Test message at ${new Date().toLocaleTimeString()}`
+            };
+
+            log('messages-log', `Inserting message: ${JSON.stringify(testMessage, null, 2)}`);
+
+            const { data, error } = await supabase
+                .from('messages')
+                .insert(testMessage)
+                .select()
+                .single();
+
+            if (error) {
+                log('messages-log', `Insert error: ${JSON.stringify(error, null, 2)}`, 'error');
+            } else {
+                log('messages-log', `Message inserted successfully: ${JSON.stringify(data, null, 2)}`, 'success');
+            }
+        }
+    </script>
+</body>
+</html>

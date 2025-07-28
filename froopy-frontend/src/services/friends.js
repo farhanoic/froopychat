@@ -109,7 +109,6 @@ export const friendsService = {
             id,
             username,
             gender,
-            email,
             created_at
           )
         `)
@@ -125,7 +124,6 @@ export const friendsService = {
         id: f.friend.id,
         username: f.friend.username,
         gender: f.friend.gender,
-        email: f.friend.email,
         created_at: f.friend.created_at,
         friendship_created: f.created_at,
         isOnline: false, // Will be updated by presence

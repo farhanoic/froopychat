@@ -50,3 +50,20 @@ playwright/.cache/
 *.tmp
 *.temp
 *.local
+
+# Sensitive development files (CLAUDE.md security rules)
+CLAUDE.md
+claude.md
+devtrack.md
+DEVTRACK.md
+bugtrack.md
+BUGTRACK.md
+.claude/
+*.private
+*.secret
+*.sensitive
+*api*key*
+*token*
+*secret*
+database.yml
+secrets.yml

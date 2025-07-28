@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bot Timeout Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <h1>Bot Timeout Test</h1>
+    <button onclick="testBotTimeout()">Test Bot Timeout</button>
+    <div id="logs"></div>
+
+    <script>
+        // Initialize Supabase
+        const supabase = window.supabase.createClient(
+            'https://hrcfgysxscsfcqsknkcn.supabase.co',
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhyY2ZneXN4c2NzZmNxc2tua2NuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzcxMjM2MzMsImV4cCI6MjA1MjY5OTYzM30.xMdNUJKcxO3x3XKXRG08Qz2RcWaHQGe8v8bXk3UUIz8'
+        );
+
+        function log(message) {
+            console.log(message);
+            document.getElementById('logs').innerHTML += '<p>' + message + '</p>';
+        }
+
+        async function testBotTimeout() {
+            log('🤖 Testing bot timeout functionality...');
+            
+            const userId = '45cff62f-5271-403c-8d1e-df6ca4802291';
+            
+            try {
+                // Remove user from waiting pool first
+                await supabase
+                    .from('waiting_pool')
+                    .delete()
+                    .eq('user_id', userId);
+
+                log('✅ Removed user from waiting pool for bot match');
+
+                // Generate bot profile
+                const botProfile = generateBotProfile();
+                log('🤖 Generated bot profile: ' + JSON.stringify(botProfile));
+
+                // Create bot match directly
+                const botId = `bot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                
+                const { data: matchData, error: matchError } = await supabase
+                    .from('matches')
+                    .insert({
+                        user1_id: userId,
+                        user2_id: botId,
+                        is_bot: true,
+                        bot_profile: botProfile,
+                        created_at: new Date().toISOString()
+                    })
+                    .select()
+                    .single();
+
+                if (matchError) {
+                    log('❌ Error creating bot match: ' + JSON.stringify(matchError));
+                    return;
+                }
+
+                log('✅ Bot match created successfully: ' + JSON.stringify(matchData));
+
+                // Send initial bot message
+                const conversationStarter = generateConversationStarter(botProfile);
+                
+                const { error: messageError } = await supabase
+                    .from('messages')
+                    .insert({
+                        match_id: matchData.id,
+                        sender_id: botId,
+                        content: conversationStarter,
+                        is_bot: true,
+                        created_at: new Date().toISOString()
+                    });
+
+                if (messageError) {
+                    log('❌ Error sending bot welcome message: ' + JSON.stringify(messageError));
+                } else {
+                    log('💬 Bot welcome message sent: ' + conversationStarter);
+                }
+
+                log('🎉 Bot timeout test completed successfully!');
+                
+            } catch (error) {
+                log('❌ Error in bot timeout test: ' + JSON.stringify(error));
+            }
+        }
+
+        function generateBotProfile() {
+            const indianFemaleNames = [
+                'Priya', 'Neha', 'Kavya', 'Ananya', 'Shreya', 'Pooja', 'Divya', 'Riya', 
+                'Meera', 'Sneha', 'Aditi', 'Nisha', 'Swati', 'Ritika', 'Sakshi'
+            ];
+            
+            const cities = [
+                'Mumbai', 'Delhi', 'Bangalore', 'Chennai', 'Hyderabad', 'Pune', 'Kolkata', 
+                'Ahmedabad', 'Jaipur', 'Lucknow', 'Kanpur', 'Nagpur', 'Indore', 'Surat'
+            ];
+            
+            const interests = [
+                'movies', 'music', 'books', 'travel', 'cooking', 'dancing', 'photography', 
+                'art', 'yoga', 'fitness', 'technology', 'fashion', 'cricket', 'bollywood'
+            ];
+            
+            const name = indianFemaleNames[Math.floor(Math.random() * indianFemaleNames.length)];
+            const city = cities[Math.floor(Math.random() * cities.length)];
+            const userInterests = interests
+                .sort(() => 0.5 - Math.random())
+                .slice(0, Math.floor(Math.random() * 3) + 2)
+                .join(', ');
+            
+            return {
+                username: `${name.toLowerCase()}${Math.floor(Math.random() * 999) + 100}`,
+                displayName: name,
+                city: city,
+                interests: userInterests,
+                personality: 'friendly',
+                responseStyle: 'casual',
+                language: 'hinglish'
+            };
+        }
+
+        function generateConversationStarter(botProfile) {
+            const starters = [
+                `Hi! I'm ${botProfile.displayName} from ${botProfile.city} 👋`,
+                `Hey there! Nice to meet you! I'm ${botProfile.displayName} 😊`,
+                `Hello! I'm ${botProfile.displayName}. How's your day going? ✨`,
+                `Hi! ${botProfile.displayName} here from ${botProfile.city}. What brings you to chat today? 💬`,
+                `Hey! I'm ${botProfile.displayName}. Love chatting with new people! 🌟`
+            ];
+            
+            return starters[Math.floor(Math.random() * starters.length)];
+        }
+    </script>
+</body>
+</html>
